@@ -61,49 +61,149 @@ function padAnsi(text, width) {
   return `${text}${' '.repeat(Math.max(0, width - visible))}`;
 }
 
-function box(title, lines, width = 88, { tone = ANSI.cyan } = {}) {
+// ── Box styles ──────────────────────────────────────────
+
+function box(title, lines, width = 88, { tone = ANSI.cyan, style = 'rounded' } = {}) {
   const outer = clampWidth(width);
   const inner = outer - 2;
   const borderColor = tone;
 
-  const header = `${color(theme.topLeft, borderColor)}${color(theme.border.repeat(inner), borderColor)}${color(theme.topRight, borderColor)}`;
+  const chars = getBoxChars(style);
+
+  const header = `${color(chars.topLeft, borderColor)}${color(chars.border.repeat(inner), borderColor)}${color(chars.topRight, borderColor)}`;
 
   const titleText = String(title || '');
-  const titleLine = `${color(theme.left, borderColor)} ${color(titleText.slice(0, inner - 1), `${ANSI.bold}${ANSI.brightWhite}`)}${' '.repeat(Math.max(0, inner - 1 - stripAnsi(titleText).length))}${color(theme.right, borderColor)}`;
+  const trimmedTitle = titleText.slice(0, inner - 2);
+  const titleLen = stripAnsi(trimmedTitle).length;
+  const titlePad = Math.max(0, inner - 2 - titleLen);
+  const titleLine = `${color(chars.left, borderColor)} ${color(trimmedTitle, `${ANSI.bold}${ANSI.brightWhite}`)}${' '.repeat(titlePad)} ${color(chars.right, borderColor)}`;
 
-  const divider = `${color(theme.dividerLeft, borderColor)}${color(theme.border.repeat(inner), borderColor)}${color(theme.dividerRight, borderColor)}`;
+  const divider = `${color(chars.dividerLeft, borderColor)}${color(chars.border.repeat(inner), borderColor)}${color(chars.dividerRight, borderColor)}`;
 
-  const expandedLines = (lines || []).flatMap((line) => wrapLine(line, inner - 1));
+  const expandedLines = (lines || []).flatMap((line) => wrapLine(line, inner - 2));
   const body = expandedLines.map((line) =>
-    `${color(theme.left, borderColor)} ${padAnsi(String(line), inner - 1)}${color(theme.right, borderColor)}`
+    `${color(chars.left, borderColor)} ${padAnsi(String(line), inner - 2)} ${color(chars.right, borderColor)}`
   );
 
-  const footer = `${color(theme.bottomLeft, borderColor)}${color(theme.border.repeat(inner), borderColor)}${color(theme.bottomRight, borderColor)}`;
+  const footer = `${color(chars.bottomLeft, borderColor)}${color(chars.border.repeat(inner), borderColor)}${color(chars.bottomRight, borderColor)}`;
 
   return [header, titleLine, divider, ...body, footer].join('\n');
 }
+
+function heroBox(title, lines, width = 88, { tone = ANSI.brightCyan } = {}) {
+  return box(title, lines, width, { tone, style: 'double' });
+}
+
+function heavyBox(title, lines, width = 88, { tone = ANSI.cyan } = {}) {
+  return box(title, lines, width, { tone, style: 'heavy' });
+}
+
+function getBoxChars(style) {
+  if (style === 'double') {
+    return {
+      border: theme.doubleBorder,
+      left: theme.doubleLeft,
+      right: theme.doubleRight,
+      topLeft: theme.doubleTopLeft,
+      topRight: theme.doubleTopRight,
+      bottomLeft: theme.doubleBottomLeft,
+      bottomRight: theme.doubleBottomRight,
+      dividerLeft: theme.doubleDividerLeft,
+      dividerRight: theme.doubleDividerRight,
+    };
+  }
+  if (style === 'heavy') {
+    return {
+      border: theme.heavyBorder,
+      left: theme.heavyLeft,
+      right: theme.heavyRight,
+      topLeft: theme.heavyTopLeft,
+      topRight: theme.heavyTopRight,
+      bottomLeft: theme.heavyBottomLeft,
+      bottomRight: theme.heavyBottomRight,
+      dividerLeft: theme.heavyDividerLeft,
+      dividerRight: theme.heavyDividerRight,
+    };
+  }
+  return {
+    border: theme.border,
+    left: theme.left,
+    right: theme.right,
+    topLeft: theme.topLeft,
+    topRight: theme.topRight,
+    bottomLeft: theme.bottomLeft,
+    bottomRight: theme.bottomRight,
+    dividerLeft: theme.dividerLeft,
+    dividerRight: theme.dividerRight,
+  };
+}
+
+// ── Progress bars ───────────────────────────────────────
 
 function progressBar(value, max, width = 20) {
   const safeMax = Math.max(Number(max) || 0, 1);
   const safeValue = Math.max(0, Math.min(Number(value) || 0, safeMax));
   const filled = Math.round((safeValue / safeMax) * width);
-  const empty = Math.max(width - filled, 0);
-  return `${'█'.repeat(filled)}${'░'.repeat(empty)}`;
+  const partial = Math.round(((safeValue / safeMax) * width - filled) * 4);
+  const empty = Math.max(width - filled - (partial > 0 ? 1 : 0), 0);
+  const partialChars = ['', '░', '▒', '▓'];
+  return `${'█'.repeat(filled)}${partialChars[partial] || ''}${'░'.repeat(empty)}`;
 }
 
 function colorProgressBar(value, max, width = 20) {
   const bar = progressBar(value, max, width);
   const ratio = Math.max(0, Math.min((Number(value) || 0) / Math.max(Number(max) || 1, 1), 1));
-  const barTone = ratio >= 0.75 ? ANSI.brightGreen : ratio >= 0.4 ? ANSI.yellow : ANSI.red;
-  return color(bar, barTone);
+  const barTone = ratio >= 0.75 ? ANSI.brightGreen : ratio >= 0.4 ? ANSI.brightYellow : ratio >= 0.15 ? ANSI.orange : ANSI.red;
+  const pct = `${Math.round(ratio * 100)}%`;
+  return `${color(bar, barTone)} ${color(pct, ANSI.dim)}`;
 }
 
+// ── Metric / label helpers ──────────────────────────────
+
 function metric(label, value, { labelWidth = 14, tone = ANSI.white } = {}) {
-  return `${color(String(label).padEnd(labelWidth), ANSI.dim)} ${color(String(value), tone)}`;
+  return `  ${color(String(label).padEnd(labelWidth), ANSI.slate)} ${color(String(value), tone)}`;
 }
 
 function pill(text, tone = ANSI.cyan) {
-  return color(`${theme.symbols.bullet} ${text}`, tone);
+  return color(`[ ${text} ]`, tone);
 }
 
-module.exports = { box, terminalWidth, wrapLine, clampWidth, padAnsi, progressBar, colorProgressBar, metric, pill };
+function badge(text, tone = ANSI.brightCyan) {
+  return `${color(theme.symbols.sparkle, tone)} ${color(text, `${ANSI.bold}${tone}`)}`;
+}
+
+function tag(label, value, tone = ANSI.brightCyan) {
+  return `${color(label, ANSI.slate)}${color(':', ANSI.darkGray)} ${color(value, tone)}`;
+}
+
+function separator(width = 88, char = '─', tone = ANSI.darkGray) {
+  const outer = clampWidth(width);
+  return color(char.repeat(outer), tone);
+}
+
+function sectionTitle(text, tone = ANSI.brightWhite) {
+  return `\n  ${color(theme.symbols.triangleRight, tone)} ${color(text, `${ANSI.bold}${tone}`)}`;
+}
+
+function blankLine() {
+  return '';
+}
+
+module.exports = {
+  box,
+  heroBox,
+  heavyBox,
+  terminalWidth,
+  wrapLine,
+  clampWidth,
+  padAnsi,
+  progressBar,
+  colorProgressBar,
+  metric,
+  pill,
+  badge,
+  tag,
+  separator,
+  sectionTitle,
+  blankLine,
+};

@@ -1,9 +1,14 @@
 const { renderHeader, renderSystemCheck, renderSummary } = require('./panels');
 const { summarizeAccounts } = require('../domain/summary');
+const { color, ANSI, theme } = require('./theme');
 
 async function runLauncher(context, promptFn) {
-  const lines = [renderHeader(context.accountName), renderSystemCheck(['warming snapshot in background'])];
-  lines.forEach((line) => console.log(line));
+  const header = renderHeader(context.accountName);
+  const sysCheck = renderSystemCheck([
+    `${color('Warming snapshot in background', ANSI.warmGray)}`,
+    `${color('Session initialized', ANSI.warmGray)}`,
+  ]);
+  console.log(`\n${header}\n${sysCheck}\n`);
   return require('./menus').chooseLauncherMode(promptFn);
 }
 

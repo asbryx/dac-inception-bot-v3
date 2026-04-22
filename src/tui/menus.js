@@ -1,45 +1,60 @@
 const { color, ANSI, theme } = require('./theme');
+const { box } = require('./renderer');
 
 async function chooseLauncherMode(promptFn) {
   const modes = [
-    { key: 'auto',          label: 'Auto',          desc: 'guided automation on current account' },
-    { key: 'auto-all',      label: 'Auto All',      desc: 'one-click automation for all accounts' },
-    { key: 'manual',        label: 'Manual',         desc: 'one task group at a time' },
-    { key: 'summary',       label: 'Summary',        desc: 'all-accounts dashboard' },
-    { key: 'account',       label: 'Account',        desc: 'switch active account' },
-    { key: 'advanced',      label: 'Advanced',       desc: 'mint / burn / stake / tracking' },
-    { key: 'exit',          label: 'Exit',           desc: 'quit the launcher' },
+    { key: 'auto',     icon: theme.symbols.bolt,     label: 'Auto',     desc: 'Guided automation on current account' },
+    { key: 'auto-all', icon: theme.symbols.rocket,   label: 'Auto All', desc: 'One-click automation for all accounts' },
+    { key: 'manual',   icon: theme.symbols.ready,    label: 'Manual',   desc: 'One task group at a time' },
+    { key: 'summary',  icon: theme.symbols.diamond,  label: 'Summary',  desc: 'All-accounts dashboard' },
+    { key: 'account',  icon: theme.symbols.circle,   label: 'Account',  desc: 'Switch active account' },
+    { key: 'advanced', icon: theme.symbols.star,      label: 'Advanced', desc: 'Mint / burn / stake / tracking' },
+    { key: 'exit',     icon: theme.symbols.arrow,     label: 'Exit',     desc: 'Quit the launcher' },
   ];
 
-  const hint = modes.map((m) =>
-    `  ${color(m.key.padEnd(12), ANSI.brightCyan)} ${color(m.desc, ANSI.dim)}`
-  ).join('\n');
+  const lines = modes.map((m) => {
+    const keyDisplay = color(m.key.padEnd(12), ANSI.brightCyan);
+    const iconDisplay = color(m.icon, m.key === 'exit' ? ANSI.slate : ANSI.teal);
+    const descDisplay = color(m.desc, ANSI.warmGray);
+    return `  ${iconDisplay} ${keyDisplay} ${descDisplay}`;
+  });
 
   if (process.stdout.isTTY) {
-    process.stdout.write(`\n${color(`${theme.symbols.diamond} Select Mode`, `${ANSI.bold}${ANSI.brightWhite}`)}\n`);
-    process.stdout.write(`${hint}\n\n`);
+    const menuBox = box(`${theme.symbols.diamond} Select Mode`, [
+      '',
+      ...lines,
+      '',
+    ], 56, { tone: ANSI.brightCyan });
+    process.stdout.write(`\n${menuBox}\n\n`);
   }
 
-  return promptFn(`${color(theme.symbols.ready, ANSI.brightCyan)} Mode: `);
+  return promptFn(`  ${color(theme.symbols.triangleRight, ANSI.brightCyan)} ${color('Mode:', ANSI.brightWhite)} `);
 }
 
 async function chooseProfile(promptFn) {
   const profiles = [
-    { key: 'safe',       desc: 'conservative reserves, smaller actions' },
-    { key: 'balanced',   desc: 'moderate reserves, balanced strategy' },
-    { key: 'aggressive', desc: 'low reserves, maximize progression' },
+    { key: 'safe',       icon: theme.symbols.shield,   desc: 'Conservative reserves, smaller actions' },
+    { key: 'balanced',   icon: theme.symbols.diamond,   desc: 'Moderate reserves, balanced strategy' },
+    { key: 'aggressive', icon: theme.symbols.fire,      desc: 'Low reserves, maximize progression' },
   ];
 
-  const hint = profiles.map((p) =>
-    `  ${color(p.key.padEnd(12), ANSI.brightCyan)} ${color(p.desc, ANSI.dim)}`
-  ).join('\n');
+  const lines = profiles.map((p) => {
+    const keyDisplay = color(p.key.padEnd(12), ANSI.brightCyan);
+    const iconDisplay = color(p.icon, ANSI.teal);
+    const descDisplay = color(p.desc, ANSI.warmGray);
+    return `  ${iconDisplay} ${keyDisplay} ${descDisplay}`;
+  });
 
   if (process.stdout.isTTY) {
-    process.stdout.write(`\n${color(`${theme.symbols.diamond} Strategy Profile`, `${ANSI.bold}${ANSI.brightWhite}`)}\n`);
-    process.stdout.write(`${hint}\n\n`);
+    const menuBox = box(`${theme.symbols.star} Strategy Profile`, [
+      '',
+      ...lines,
+      '',
+    ], 56, { tone: ANSI.gold });
+    process.stdout.write(`\n${menuBox}\n\n`);
   }
 
-  return promptFn(`${color(theme.symbols.ready, ANSI.brightCyan)} Profile: `);
+  return promptFn(`  ${color(theme.symbols.triangleRight, ANSI.brightCyan)} ${color('Profile:', ANSI.brightWhite)} `);
 }
 
 module.exports = { chooseLauncherMode, chooseProfile };

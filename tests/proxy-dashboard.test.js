@@ -56,7 +56,7 @@ test('renderProxyPanel shows proxy pool and wallet mapping text', () => {
 
   const plain = stripAnsi(panel);
   assert.match(panel, /Proxy Pool/);
-  assert.match(plain, /healthy 1/);
+  assert.match(plain, /1 healthy/);
   assert.match(panel, /wallet-1/);
   assert.match(panel, /rotation-failover/);
   assert.match(panel, /Proxy HTTP 502/);

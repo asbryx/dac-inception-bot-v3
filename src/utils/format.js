@@ -42,10 +42,38 @@ function faucetDisplay(status) {
 }
 
 function table(headers, rows) {
-  const widths = headers.map((header, index) => Math.max(header.length, ...rows.map((row) => String(row[index] ?? '').length)));
-  const headerRow = headers.map((header, index) => String(header).padEnd(widths[index])).join('  ');
-  const body = rows.map((row) => row.map((cell, index) => String(cell ?? '').padEnd(widths[index])).join('  '));
-  return [headerRow, ...body].join('\n');
+  // Calculate column widths from visible text only (strip ANSI)
+  const stripAnsi = (text) => String(text || '').replace(/\x1b\[[0-9;]*m/g, '');
+  const widths = headers.map((header, index) =>
+    Math.max(
+      stripAnsi(header).length,
+      ...rows.map((row) => stripAnsi(row[index] ?? '').length),
+    ),
+  );
+
+  // Pad cells accounting for ANSI escape sequences
+  const padCell = (text, width) => {
+    const visible = stripAnsi(text).length;
+    return `${text}${' '.repeat(Math.max(0, width - visible))}`;
+  };
+
+  const dim = '\x1b[2m';
+  const reset = '\x1b[0m';
+  const slate = '\x1b[38;5;245m';
+  const brightWhite = '\x1b[97m';
+  const darkGray = '\x1b[38;5;238m';
+
+  const headerRow = headers.map((header, index) =>
+    `${brightWhite}${padCell(header, widths[index])}${reset}`
+  ).join(`  ${darkGray}│${reset}  `);
+
+  const dividerRow = widths.map((w) => `${darkGray}${'─'.repeat(w)}${reset}`).join(`──${darkGray}┼${reset}──`);
+
+  const body = rows.map((row) =>
+    row.map((cell, index) => padCell(String(cell ?? ''), widths[index])).join(`  ${darkGray}│${reset}  `)
+  );
+
+  return [headerRow, dividerRow, ...body].join('\n');
 }
 
 function formatSummaryCell(value, kind = 'text') {

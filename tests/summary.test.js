@@ -13,7 +13,7 @@ test('summary rendering shows unknown badge totals honestly', () => {
     totalBadges: 2,
     rows: [{ accountName: 'main01', rank: 1, qe: 5, badges: 2, badgeTotal: null, taskSummary: { done: 1, total: 6 }, streak: null, referralCount: null }],
   });
-  assert.match(stripAnsi(text), /2\/\?/);
+  assert.match(stripAnsi(text), /2\/\u2014/);
 });
 
 test('summary rendering shows unknown values honestly and includes failures', () => {
@@ -23,10 +23,10 @@ test('summary rendering shows unknown values honestly and includes failures', ()
   ]);
   const text = `${renderSummary(summary)}\n${renderFailuresPanel(summary.failedRows)}`;
   const plain = stripAnsi(text);
-  assert.match(plain, /accounts 2/);
-  assert.match(plain, /ok 1/);
-  assert.match(plain, /failed 1/);
-  assert.match(plain, /\?\/\?/);
+  assert.match(plain, /2 accounts/);
+  assert.match(plain, /1 ok/);
+  assert.match(plain, /1 failed/);
+  assert.match(plain, /\u2014\/\u2014/);
   assert.match(text, /Failures/);
   assert.match(text, /main02/);
   assert.match(text, /Timeout: GET \/profile\//);
