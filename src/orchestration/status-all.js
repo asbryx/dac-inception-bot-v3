@@ -1,0 +1,28 @@
+const { accountNames, getAccount } = require('../config/accounts');
+const { validateSelectedAccounts } = require('../config/preflight');
+const { runAcrossAccounts } = require('./runner');
+
+async function runStatusAll({ contextFactory, selected = null, concurrency = 4, onStart = null, onComplete = null } = {}) {
+  const accounts = selected && selected.length ? selected : accountNames();
+  const preflight = validateSelectedAccounts(accounts);
+  const validAccounts = preflight.rows.filter((row) => row.ok).map((row) => row.accountName);
+  const invalidResults = preflight.invalid.map((row) => ({
+    account: row.accountName,
+    ok: false,
+    error: `${row.accountName} | preflight | config | ${row.issues.join('; ')}`,
+  }));
+  const results = await runAcrossAccounts(validAccounts, async (accountName) => {
+    const context = await contextFactory(accountName);
+    return context.services.statusService.fetchNormalizedStatus();
+  }, { onStart, onComplete, concurrency, action: 'status-all' });
+  return {
+    task: 'status-all',
+    accounts,
+    defaultAccount: getAccount()?.accountName || null,
+    preflight,
+    results: [...invalidResults, ...results],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+module.exports = { runStatusAll };

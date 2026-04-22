@@ -1,0 +1,32 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { getApiTimeoutMs, fetchApiPayload } = require('../src/api/endpoints');
+
+test('read endpoints use longer timeout budget', () => {
+  assert.equal(getApiTimeoutMs('/profile/'), 25000);
+  assert.equal(getApiTimeoutMs('/network/'), 25000);
+  assert.equal(getApiTimeoutMs('/task/claim'), 12000);
+});
+
+test('timeout fallback preserves endpoint-specific message and stale flag', async () => {
+  const bot = {
+    apiBase: 'https://example.invalid',
+    apiClient: {
+      fetchWithSession: async () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        throw error;
+      },
+      fetchJsonResponse: async () => ({}),
+    },
+    getCachedValue: (key) => {
+      if (key === 'profile') return { qe_balance: 7 };
+      return null;
+    },
+  };
+
+  const result = await fetchApiPayload(bot, '/profile/', { method: 'GET' });
+  assert.equal(result._stale, true);
+  assert.equal(result._timeout, true);
+  assert.match(result.error, /Timeout: GET \/profile\//);
+});

@@ -1,0 +1,34 @@
+{
+  "default": "main01",
+  "addons": {
+    "proxies": {
+      "enabled": true,
+      "list": [
+        "http://user:pass@proxy-01.example:8000",
+        "http://user:pass@proxy-02.example:8000",
+        "http://user:pass@proxy-03.example:8000"
+      ],
+      "failover": {
+        "enabled": true,
+        "healthCheckPath": "/api/inception/network/",
+        "healthCheckTimeoutMs": 8000,
+        "cooldownMs": 300000,
+        "maxAttemptsPerRequest": 3
+      }
+    }
+  },
+  "accounts": {
+    "main01": {
+      "privateKey": "0xYOUR_PRIVATE_KEY_01"
+    },
+    "main02": {
+      "privateKey": "0xYOUR_PRIVATE_KEY_02"
+    },
+    "main03": {
+      "privateKey": "0xYOUR_PRIVATE_KEY_03"
+    },
+    "main04": {
+      "privateKey": "0xYOUR_PRIVATE_KEY_04"
+    }
+  }
+}

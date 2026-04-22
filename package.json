@@ -1,0 +1,30 @@
+{
+  "name": "dac-inception-bot-v3",
+  "version": "2.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/cli/main.js",
+  "bin": {
+    "dac-bot": "./src/cli/main.js"
+  },
+  "scripts": {
+    "start": "node src/cli/main.js menu",
+    "menu": "node src/cli/main.js menu",
+    "status": "node src/cli/main.js status",
+    "status-all": "node src/cli/main.js status-all",
+    "test": "node --test tests/*.test.js",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ethers": "^6.16.0",
+    "undici": "^7.25.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0"
+  }
+}
