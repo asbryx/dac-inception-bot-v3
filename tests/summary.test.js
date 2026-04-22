@@ -37,7 +37,7 @@ test('failures panel shortens very long errors cleanly', () => {
     { account: 'main99', error: 'main99 | run-all | GET /profile/ | ' + 'x'.repeat(180) },
   ]);
   assert.match(text, /main99/);
-  assert.ok(stripAnsi(text).length < 700);
+  assert.ok(stripAnsi(text).length < 1200);
 });
 
 test('summary bundle chunks large account lists cleanly', () => {

@@ -1,13 +1,17 @@
-const { theme, ANSI, color, stripAnsi } = require('./theme');
+const { theme, ANSI, C, color, stripAnsi } = require('./theme');
+
+// ─── Terminal helpers ───────────────────────────────────
 
 function terminalWidth() {
-  const width = Number(process.stdout.columns || 0);
-  return Number.isFinite(width) && width > 20 ? width : 100;
+  const w = Number(process.stdout.columns || 0);
+  return Number.isFinite(w) && w > 20 ? w : 100;
 }
 
 function clampWidth(width) {
   return Math.max(40, Math.min(width || 88, terminalWidth() - 2));
 }
+
+// ─── Text wrapping (ANSI-aware) ─────────────────────────
 
 function wrapLine(text, inner) {
   const raw = String(text ?? '');
@@ -33,13 +37,9 @@ function wrapLine(text, inner) {
         let visibleCount = 0;
         let rawIndex = 0;
         while (rawIndex < slice.length && visibleCount < breakAt) {
-          const char = slice[rawIndex];
-          if (char === '\x1b') {
-            const match = slice.slice(rawIndex).match(/^\x1b\[[0-9;]*m/);
-            if (match) {
-              rawIndex += match[0].length;
-              continue;
-            }
+          if (slice[rawIndex] === '\x1b') {
+            const m = slice.slice(rawIndex).match(/^\x1b\[[0-9;]*m/);
+            if (m) { rawIndex += m[0].length; continue; }
           }
           visibleCount += 1;
           rawIndex += 1;
@@ -57,153 +57,80 @@ function wrapLine(text, inner) {
 }
 
 function padAnsi(text, width) {
-  const visible = stripAnsi(text).length;
-  return `${text}${' '.repeat(Math.max(0, width - visible))}`;
+  const vis = stripAnsi(text).length;
+  return `${text}${' '.repeat(Math.max(0, width - vis))}`;
 }
 
-// ── Box styles ──────────────────────────────────────────
+// ─── Box ────────────────────────────────────────────────
+// One style for everything. Only the header uses `double`.
 
-function box(title, lines, width = 88, { tone = ANSI.cyan, style = 'rounded' } = {}) {
+function box(title, lines, width = 88, { tone = C.border, style = 'rounded' } = {}) {
   const outer = clampWidth(width);
   const inner = outer - 2;
-  const borderColor = tone;
-
-  const chars = getBoxChars(style);
-
-  const header = `${color(chars.topLeft, borderColor)}${color(chars.border.repeat(inner), borderColor)}${color(chars.topRight, borderColor)}`;
-
-  const titleText = String(title || '');
-  const trimmedTitle = titleText.slice(0, inner - 2);
-  const titleLen = stripAnsi(trimmedTitle).length;
-  const titlePad = Math.max(0, inner - 2 - titleLen);
-  const titleLine = `${color(chars.left, borderColor)} ${color(trimmedTitle, `${ANSI.bold}${ANSI.brightWhite}`)}${' '.repeat(titlePad)} ${color(chars.right, borderColor)}`;
-
-  const divider = `${color(chars.dividerLeft, borderColor)}${color(chars.border.repeat(inner), borderColor)}${color(chars.dividerRight, borderColor)}`;
-
-  const expandedLines = (lines || []).flatMap((line) => wrapLine(line, inner - 2));
-  const body = expandedLines.map((line) =>
-    `${color(chars.left, borderColor)} ${padAnsi(String(line), inner - 2)} ${color(chars.right, borderColor)}`
-  );
-
-  const footer = `${color(chars.bottomLeft, borderColor)}${color(chars.border.repeat(inner), borderColor)}${color(chars.bottomRight, borderColor)}`;
-
-  return [header, titleLine, divider, ...body, footer].join('\n');
-}
-
-function heroBox(title, lines, width = 88, { tone = ANSI.brightCyan } = {}) {
-  return box(title, lines, width, { tone, style: 'double' });
-}
-
-function heavyBox(title, lines, width = 88, { tone = ANSI.cyan } = {}) {
-  return box(title, lines, width, { tone, style: 'heavy' });
-}
-
-function getBoxChars(style) {
-  if (style === 'double') {
-    return {
-      border: theme.doubleBorder,
-      left: theme.doubleLeft,
-      right: theme.doubleRight,
-      topLeft: theme.doubleTopLeft,
-      topRight: theme.doubleTopRight,
-      bottomLeft: theme.doubleBottomLeft,
-      bottomRight: theme.doubleBottomRight,
-      dividerLeft: theme.doubleDividerLeft,
-      dividerRight: theme.doubleDividerRight,
-    };
-  }
-  if (style === 'heavy') {
-    return {
-      border: theme.heavyBorder,
-      left: theme.heavyLeft,
-      right: theme.heavyRight,
-      topLeft: theme.heavyTopLeft,
-      topRight: theme.heavyTopRight,
-      bottomLeft: theme.heavyBottomLeft,
-      bottomRight: theme.heavyBottomRight,
-      dividerLeft: theme.heavyDividerLeft,
-      dividerRight: theme.heavyDividerRight,
-    };
-  }
-  return {
-    border: theme.border,
-    left: theme.left,
-    right: theme.right,
-    topLeft: theme.topLeft,
-    topRight: theme.topRight,
-    bottomLeft: theme.bottomLeft,
-    bottomRight: theme.bottomRight,
-    dividerLeft: theme.dividerLeft,
-    dividerRight: theme.dividerRight,
+  const bc = tone;
+  const ch = style === 'double' ? {
+    b: theme.doubleBorder, l: theme.doubleLeft, r: theme.doubleRight,
+    tl: theme.doubleTopLeft, tr: theme.doubleTopRight,
+    bl: theme.doubleBottomLeft, br: theme.doubleBottomRight,
+    dl: theme.doubleDividerLeft, dr: theme.doubleDividerRight,
+  } : {
+    b: theme.border, l: theme.left, r: theme.right,
+    tl: theme.topLeft, tr: theme.topRight,
+    bl: theme.bottomLeft, br: theme.bottomRight,
+    dl: theme.dividerLeft, dr: theme.dividerRight,
   };
+
+  const top = `${color(ch.tl, bc)}${color(ch.b.repeat(inner), bc)}${color(ch.tr, bc)}`;
+  const ttxt = String(title || '').slice(0, inner - 2);
+  const tpad = Math.max(0, inner - 2 - stripAnsi(ttxt).length);
+  const tline = `${color(ch.l, bc)} ${color(ttxt, C.title)}${' '.repeat(tpad)} ${color(ch.r, bc)}`;
+  const div = `${color(ch.dl, bc)}${color(ch.b.repeat(inner), bc)}${color(ch.dr, bc)}`;
+
+  const body = (lines || [])
+    .flatMap((ln) => wrapLine(ln, inner - 2))
+    .map((ln) => `${color(ch.l, bc)} ${padAnsi(String(ln), inner - 2)} ${color(ch.r, bc)}`);
+
+  const bot = `${color(ch.bl, bc)}${color(ch.b.repeat(inner), bc)}${color(ch.br, bc)}`;
+  return [top, tline, div, ...body, bot].join('\n');
 }
 
-// ── Progress bars ───────────────────────────────────────
+function heroBox(title, lines, width = 88) {
+  return box(title, lines, width, { tone: ANSI.cyan, style: 'double' });
+}
+
+// ─── Progress bar ───────────────────────────────────────
 
 function progressBar(value, max, width = 20) {
-  const safeMax = Math.max(Number(max) || 0, 1);
-  const safeValue = Math.max(0, Math.min(Number(value) || 0, safeMax));
-  const filled = Math.round((safeValue / safeMax) * width);
-  const partial = Math.round(((safeValue / safeMax) * width - filled) * 4);
-  const empty = Math.max(width - filled - (partial > 0 ? 1 : 0), 0);
-  const partialChars = ['', '░', '▒', '▓'];
-  return `${'█'.repeat(filled)}${partialChars[partial] || ''}${'░'.repeat(empty)}`;
+  const sMax = Math.max(Number(max) || 0, 1);
+  const sVal = Math.max(0, Math.min(Number(value) || 0, sMax));
+  const filled = Math.round((sVal / sMax) * width);
+  const empty = Math.max(width - filled, 0);
+  return `${'█'.repeat(filled)}${'░'.repeat(empty)}`;
 }
 
 function colorProgressBar(value, max, width = 20) {
   const bar = progressBar(value, max, width);
   const ratio = Math.max(0, Math.min((Number(value) || 0) / Math.max(Number(max) || 1, 1), 1));
-  const barTone = ratio >= 0.75 ? ANSI.brightGreen : ratio >= 0.4 ? ANSI.brightYellow : ratio >= 0.15 ? ANSI.orange : ANSI.red;
-  const pct = `${Math.round(ratio * 100)}%`;
-  return `${color(bar, barTone)} ${color(pct, ANSI.dim)}`;
+  const tone = ratio >= 0.7 ? C.success : ratio >= 0.35 ? C.warn : C.error;
+  return `${color(bar, tone)} ${color(`${Math.round(ratio * 100)}%`, C.muted)}`;
 }
 
-// ── Metric / label helpers ──────────────────────────────
+// ─── Metric line ────────────────────────────────────────
+//   Label          Value
+// Consistent 2-space indent, label padded to fixed width.
 
-function metric(label, value, { labelWidth = 14, tone = ANSI.white } = {}) {
-  return `  ${color(String(label).padEnd(labelWidth), ANSI.slate)} ${color(String(value), tone)}`;
+function metric(label, value, { labelWidth = 14, tone = C.value } = {}) {
+  return `  ${color(String(label).padEnd(labelWidth), C.label)} ${color(String(value), tone)}`;
 }
 
-function pill(text, tone = ANSI.cyan) {
-  return color(`[ ${text} ]`, tone);
-}
+// ─── Pill (inline tag) ─────────────────────────────────
+// Rendered as: ‹text› — no brackets, just colored.
 
-function badge(text, tone = ANSI.brightCyan) {
-  return `${color(theme.symbols.sparkle, tone)} ${color(text, `${ANSI.bold}${tone}`)}`;
-}
-
-function tag(label, value, tone = ANSI.brightCyan) {
-  return `${color(label, ANSI.slate)}${color(':', ANSI.darkGray)} ${color(value, tone)}`;
-}
-
-function separator(width = 88, char = '─', tone = ANSI.darkGray) {
-  const outer = clampWidth(width);
-  return color(char.repeat(outer), tone);
-}
-
-function sectionTitle(text, tone = ANSI.brightWhite) {
-  return `\n  ${color(theme.symbols.triangleRight, tone)} ${color(text, `${ANSI.bold}${tone}`)}`;
-}
-
-function blankLine() {
-  return '';
+function pill(text, tone = C.accent) {
+  return color(text, tone);
 }
 
 module.exports = {
-  box,
-  heroBox,
-  heavyBox,
-  terminalWidth,
-  wrapLine,
-  clampWidth,
-  padAnsi,
-  progressBar,
-  colorProgressBar,
-  metric,
-  pill,
-  badge,
-  tag,
-  separator,
-  sectionTitle,
-  blankLine,
+  box, heroBox, terminalWidth, wrapLine, clampWidth, padAnsi,
+  progressBar, colorProgressBar, metric, pill,
 };

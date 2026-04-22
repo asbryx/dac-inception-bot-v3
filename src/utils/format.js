@@ -21,7 +21,9 @@ function shortUrl(value) {
   const text = String(value);
   try {
     const url = new URL(text);
-    const tail = url.pathname.length > 24 ? `${url.pathname.slice(0, 12)}...${url.pathname.slice(-10)}` : url.pathname;
+    const tail = url.pathname.length > 24
+      ? `${url.pathname.slice(0, 12)}...${url.pathname.slice(-10)}`
+      : url.pathname;
     return `${url.hostname}${tail}`;
   } catch {
     return text.length > 40 ? `${text.slice(0, 20)}...${text.slice(-16)}` : text;
@@ -41,39 +43,31 @@ function faucetDisplay(status) {
   return String(status);
 }
 
-function table(headers, rows) {
-  // Calculate column widths from visible text only (strip ANSI)
-  const stripAnsi = (text) => String(text || '').replace(/\x1b\[[0-9;]*m/g, '');
-  const widths = headers.map((header, index) =>
-    Math.max(
-      stripAnsi(header).length,
-      ...rows.map((row) => stripAnsi(row[index] ?? '').length),
-    ),
-  );
+// ─── Table ──────────────────────────────────────────────
+// Clean table with dim column separators and an underline
+// beneath the header. ANSI-aware width calculation.
 
-  // Pad cells accounting for ANSI escape sequences
-  const padCell = (text, width) => {
-    const visible = stripAnsi(text).length;
-    return `${text}${' '.repeat(Math.max(0, width - visible))}`;
+function table(headers, rows) {
+  const strip = (t) => String(t || '').replace(/\x1b\[[0-9;]*m/g, '');
+  const widths = headers.map((h, i) =>
+    Math.max(strip(h).length, ...rows.map((r) => strip(r[i] ?? '').length)),
+  );
+  const pad = (t, w) => {
+    const vis = strip(t).length;
+    return `${t}${' '.repeat(Math.max(0, w - vis))}`;
   };
 
-  const dim = '\x1b[2m';
-  const reset = '\x1b[0m';
-  const slate = '\x1b[38;5;245m';
-  const brightWhite = '\x1b[97m';
-  const darkGray = '\x1b[38;5;238m';
+  const W = '\x1b[97m';       // brightWhite
+  const D = '\x1b[38;5;238m'; // darkGray
+  const R = '\x1b[0m';        // reset
 
-  const headerRow = headers.map((header, index) =>
-    `${brightWhite}${padCell(header, widths[index])}${reset}`
-  ).join(`  ${darkGray}│${reset}  `);
-
-  const dividerRow = widths.map((w) => `${darkGray}${'─'.repeat(w)}${reset}`).join(`──${darkGray}┼${reset}──`);
-
-  const body = rows.map((row) =>
-    row.map((cell, index) => padCell(String(cell ?? ''), widths[index])).join(`  ${darkGray}│${reset}  `)
+  const sep = `  ${D}│${R}  `;
+  const hdr = headers.map((h, i) => `${W}${pad(h, widths[i])}${R}`).join(sep);
+  const rule = widths.map((w) => `${D}${'─'.repeat(w)}${R}`).join(`──${D}┼${R}──`);
+  const body = rows.map((r) =>
+    r.map((c, i) => pad(String(c ?? ''), widths[i])).join(sep),
   );
-
-  return [headerRow, dividerRow, ...body].join('\n');
+  return [hdr, rule, ...body].join('\n');
 }
 
 function formatSummaryCell(value, kind = 'text') {

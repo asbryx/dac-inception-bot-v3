@@ -1,19 +1,21 @@
 const { renderHeader, renderSystemCheck, renderSummary } = require('./panels');
 const { summarizeAccounts } = require('../domain/summary');
-const { color, ANSI, theme } = require('./theme');
+const { color, C } = require('./theme');
 
 async function runLauncher(context, promptFn) {
   const header = renderHeader(context.accountName);
-  const sysCheck = renderSystemCheck([
-    `${color('Warming snapshot in background', ANSI.warmGray)}`,
-    `${color('Session initialized', ANSI.warmGray)}`,
+  const check = renderSystemCheck([
+    'Warming snapshot in background',
+    'Session initialized',
   ]);
-  console.log(`\n${header}\n${sysCheck}\n`);
+  console.log(`\n${header}\n${check}\n`);
   return require('./menus').chooseLauncherMode(promptFn);
 }
 
 function renderSummaryScreen(results) {
-  const rows = results.results.map((row) => row.ok ? row.result : { accountName: row.account, error: row.error, taskSummary: {} });
+  const rows = results.results.map((r) =>
+    r.ok ? r.result : { accountName: r.account, error: r.error, taskSummary: {} },
+  );
   return renderSummary(summarizeAccounts(rows));
 }
 

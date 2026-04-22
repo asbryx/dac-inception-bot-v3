@@ -1,139 +1,137 @@
-const { box, heroBox, heavyBox, colorProgressBar, metric, pill, badge, tag, separator, sectionTitle, blankLine } = require('./renderer');
-const { color, ANSI, theme, colorBanner } = require('./theme');
+const { box, heroBox, colorProgressBar, metric, pill } = require('./renderer');
+const { color, ANSI, C, theme, colorBanner } = require('./theme');
 const { table, shortAddress, shortHash, shortUrl, shortenError } = require('../utils/format');
 
-// ── Helpers ─────────────────────────────────────────────
+const S = theme.symbols;
+
+// ─── Helpers ────────────────────────────────────────────
 
 function toneStatus(status) {
-  if (status === 'ok') return color(`${theme.symbols.ok} OK`, ANSI.brightGreen);
-  if (status === 'error') return color(`${theme.symbols.fail} ERR`, ANSI.red);
-  if (status === 'stale') return color(`${theme.symbols.stale} STALE`, ANSI.brightYellow);
+  if (status === 'ok')    return color(`${S.ok} OK`,    C.success);
+  if (status === 'error') return color(`${S.fail} ERR`,  C.error);
+  if (status === 'stale') return color(`${S.stale} STALE`, C.warn);
   return status;
 }
 
 function displayValue(value) {
-  return value == null || value === '' ? color('—', ANSI.darkGray) : value;
+  return value == null || value === '' ? color('—', C.muted) : value;
 }
 
 function chunkRows(rows, size = 14) {
-  const chunks = [];
-  for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
-  return chunks;
+  const out = [];
+  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
+  return out;
 }
 
-function statusDot(ok) {
-  return ok ? color(theme.symbols.bullet, ANSI.brightGreen) : color(theme.symbols.bullet, ANSI.red);
+// ─── Summary stats (inline) ────────────────────────────
+
+function statLine(summary) {
+  return [
+    pill(`${S.bullet} ${summary.totalAccounts} accounts`, C.value),
+    pill(`${S.ok} ${summary.okCount} ok`, C.success),
+    summary.failedCount
+      ? pill(`${S.fail} ${summary.failedCount} failed`, C.error)
+      : pill(`${S.ok} 0 failed`, C.muted),
+    pill(`${S.diamond} ${summary.totalQe} QE`, C.primary),
+    pill(`${S.star} ${summary.totalBadges} badges`, C.warn),
+  ].join('   ');
 }
 
-// ── Tables ──────────────────────────────────────────────
+// ─── Account rows table ────────────────────────────────
 
 function renderRowsTable(rows) {
   return table(
     ['Account', 'Rank', 'QE', 'Badges', 'Tasks', 'Streak', 'Refs', 'Status'],
-    rows.map((row) => [
-      color(row.accountName || row.account, ANSI.brightWhite),
-      displayValue(row.rank),
-      displayValue(row.qe),
-      `${displayValue(row.badges)}/${displayValue(row.badgeTotal)}`,
-      `${displayValue(row.taskSummary?.done)}/${displayValue(row.taskSummary?.total)}`,
-      displayValue(row.streak),
-      displayValue(row.referralCount),
-      toneStatus(row.error ? 'error' : (row.stale ? 'stale' : 'ok')),
+    rows.map((r) => [
+      color(r.accountName || r.account, C.value),
+      displayValue(r.rank),
+      displayValue(r.qe),
+      `${displayValue(r.badges)}/${displayValue(r.badgeTotal)}`,
+      `${displayValue(r.taskSummary?.done)}/${displayValue(r.taskSummary?.total)}`,
+      displayValue(r.streak),
+      displayValue(r.referralCount),
+      toneStatus(r.error ? 'error' : r.stale ? 'stale' : 'ok'),
     ]),
   );
 }
 
-// ── Aggregate line ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════
+//  PANELS — each function returns a formatted string
+// ═══════════════════════════════════════════════════════
 
-function aggregateLine(summary) {
-  return [
-    pill(`${theme.symbols.bullet} ${summary.totalAccounts} accounts`, ANSI.brightWhite),
-    pill(`${theme.symbols.ok} ${summary.okCount} ok`, ANSI.brightGreen),
-    summary.failedCount
-      ? pill(`${theme.symbols.fail} ${summary.failedCount} failed`, ANSI.red)
-      : pill(`${theme.symbols.ok} 0 failed`, ANSI.darkGray),
-    pill(`${theme.symbols.bolt} ${summary.totalQe} QE`, ANSI.brightCyan),
-    pill(`${theme.symbols.star} ${summary.totalBadges} badges`, ANSI.gold),
-  ].join('  ');
-}
-
-// ── Header / Banner ─────────────────────────────────────
+// ── Header ──────────────────────────────────────────────
 
 function renderHeader(accountName) {
   const banner = colorBanner();
   const now = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
-  const info = [
-    metric('Account', accountName || '?', { tone: ANSI.brightCyan }),
-    metric('Time', now, { tone: ANSI.slate }),
-  ];
-  return `${banner}\n${heroBox(`${theme.symbols.bolt} DAC Inception Bot v3`, info, 64, { tone: ANSI.brightCyan })}`;
+  return [
+    banner,
+    heroBox(`${S.diamond} DAC Inception Bot v3`, [
+      metric('Account', accountName || '?', { tone: C.primary }),
+      metric('Time', now, { tone: C.muted }),
+    ], 58),
+  ].join('\n');
 }
 
-// ── System check ────────────────────────────────────────
+// ── System Check ────────────────────────────────────────
 
 function renderSystemCheck(lines) {
-  const formatted = lines.map((line) =>
-    `  ${color(theme.symbols.radioOn, ANSI.teal)} ${color(line, ANSI.warmGray)}`
-  );
-  return box(`${theme.symbols.shield} System Check`, formatted, 64, { tone: ANSI.teal });
+  return box(`${S.ok} System Check`, lines.map((l) =>
+    `  ${color(S.tri, C.success)} ${color(l, C.label)}`
+  ), 58);
 }
 
 // ── Progress ────────────────────────────────────────────
 
 function renderProgress(lines) {
-  const formatted = lines.map((line) =>
-    `  ${color(theme.symbols.arrowRight, ANSI.brightMagenta)} ${line}`
-  );
-  return box(`${theme.symbols.rocket} Progress`, formatted, 72, { tone: ANSI.brightMagenta });
+  return box(`${S.tri} Progress`, lines.map((l) =>
+    `  ${color(S.arrow, C.primary)} ${l}`
+  ), 72);
 }
 
-// ── Summary ─────────────────────────────────────────────
+// ── Summary (main dashboard) ────────────────────────────
 
 function renderSummary(summary) {
   const chunks = chunkRows(summary.rows, 12);
-  const lines = [aggregateLine(summary)];
-  chunks.forEach((chunk, index) => {
-    lines.push(
-      blankLine(),
-      `  ${color(`Page ${index + 1}/${chunks.length || 1}`, `${ANSI.dim}${ANSI.slate}`)}`,
-      blankLine(),
-      renderRowsTable(chunk),
-    );
+  const lines = ['', statLine(summary)];
+  chunks.forEach((chunk, i) => {
+    lines.push('', color(`  Page ${i + 1}/${chunks.length}`, C.muted), '', renderRowsTable(chunk));
   });
-  return heavyBox(`${theme.symbols.trophy} Summary`, lines, 132, { tone: ANSI.brightCyan });
+  lines.push('');
+  return box(`${S.star} Summary`, lines, 132);
 }
 
-// ── Top accounts ────────────────────────────────────────
+// ── Top Accounts ────────────────────────────────────────
 
 function renderTopAccountsPanel(summary) {
   if (!summary.topAccounts?.length) return '';
-  const lines = summary.topAccounts.map((row, index) => {
-    const medal = index === 0 ? color('🥇', '') : index === 1 ? color('🥈', '') : index === 2 ? color('🥉', '') : color(`${index + 1}.`, ANSI.slate);
-    const name = color(row.accountName || row.account, ANSI.brightWhite);
-    const qe = tag('QE', String(displayValue(row.qe)), ANSI.brightCyan);
-    const rank = tag('Rank', String(displayValue(row.rank)), ANSI.gold);
-    const badges = tag('Badges', `${displayValue(row.badges)}/${displayValue(row.badgeTotal)}`, ANSI.brightMagenta);
-    return `  ${medal} ${name}   ${qe}  ${rank}  ${badges}`;
-  });
-  return box(`${theme.symbols.trophy} Top Accounts`, lines, 100, { tone: ANSI.gold });
+  const lines = ['', ...summary.topAccounts.map((r, i) => {
+    const num = color(`${i + 1}.`, C.muted);
+    const name = color(r.accountName || r.account, C.value);
+    const qe = `${color('QE', C.label)} ${color(String(displayValue(r.qe)), C.primary)}`;
+    const rank = `${color('Rank', C.label)} ${color(String(displayValue(r.rank)), C.warn)}`;
+    const badges = `${color('Badges', C.label)} ${color(`${displayValue(r.badges)}/${displayValue(r.badgeTotal)}`, C.accent)}`;
+    return `  ${num} ${name}  ${qe}  ${rank}  ${badges}`;
+  }), ''];
+  return box(`${S.star} Top Accounts`, lines, 100);
 }
 
-// ── Aggregate overview ──────────────────────────────────
+// ── Aggregate Overview ──────────────────────────────────
 
 function renderAggregatePanel(summary) {
-  const staleCount = summary.rows.filter((row) => row.stale).length;
-  const failedCount = summary.failedRows?.length || 0;
-  return box(`${theme.symbols.diamond} Overview`, [
-    blankLine(),
-    aggregateLine(summary),
-    blankLine(),
-    metric('Stale', staleCount, { tone: staleCount ? ANSI.brightYellow : ANSI.darkGray }),
-    metric('Failed', failedCount, { tone: failedCount ? ANSI.red : ANSI.darkGray }),
-    blankLine(),
-  ], 100, { tone: ANSI.steel });
+  const stale = summary.rows.filter((r) => r.stale).length;
+  const fail = summary.failedRows?.length || 0;
+  return box(`${S.diamond} Overview`, [
+    '',
+    statLine(summary),
+    '',
+    metric('Stale', stale, { tone: stale ? C.warn : C.muted }),
+    metric('Failed', fail, { tone: fail ? C.error : C.muted }),
+    '',
+  ], 100);
 }
 
-// ── Summary bundle ──────────────────────────────────────
+// ── Summary Bundle ──────────────────────────────────────
 
 function renderSummaryBundle(summary) {
   return [
@@ -148,252 +146,238 @@ function renderSummaryBundle(summary) {
 
 function renderFailuresPanel(failedRows = []) {
   if (!failedRows.length) return '';
-  const lines = failedRows.map((row) =>
-    `  ${color(theme.symbols.fail, ANSI.red)} ${color(row.accountName || row.account, ANSI.brightWhite)} ${color(theme.symbols.arrow, ANSI.darkGray)} ${color(shortenError(row.error), ANSI.coral)}`
-  );
-  return box(`${theme.symbols.fail} Failures (${failedRows.length})`, lines, 132, { tone: ANSI.red });
+  return box(`${S.fail} Failures (${failedRows.length})`, [
+    '',
+    ...failedRows.map((r) =>
+      `  ${color(S.fail, C.error)} ${color(r.accountName || r.account, C.value)} ${color(S.arrow, C.muted)} ${color(shortenError(r.error), C.errorText)}`
+    ),
+    '',
+  ], 132);
 }
 
-// ── Multi-result ────────────────────────────────────────
+// ── Multi-Result ────────────────────────────────────────
 
 function renderMultiResultPanel(title, orchestration = {}) {
   const rows = Array.isArray(orchestration.results) ? orchestration.results : [];
-  const ok = rows.filter((row) => row.ok);
-  const failed = rows.filter((row) => !row.ok);
-  const lines = [
-    blankLine(),
-    `  ${pill(`${theme.symbols.bolt} ${title}`, ANSI.brightWhite)}  ${pill(`${rows.length} accounts`, ANSI.slate)}  ${pill(`${theme.symbols.ok} ${ok.length} ok`, ANSI.brightGreen)}  ${pill(`${theme.symbols.fail} ${failed.length} failed`, failed.length ? ANSI.red : ANSI.darkGray)}`,
-    blankLine(),
-    table(['Account', 'Status'], rows.map((row) => [
-      color(row.account, ANSI.brightWhite),
-      row.ok ? color(`${theme.symbols.ok} OK`, ANSI.brightGreen) : color(`${theme.symbols.fail} ERR`, ANSI.red),
-    ])),
-    blankLine(),
-  ];
-  return [box(`${theme.symbols.bolt} ${title}`, lines, 100, { tone: ANSI.brightCyan }), renderFailuresPanel(failed)].filter(Boolean).join('\n');
-}
-
-// ── Status ──────────────────────────────────────────────
-
-function renderStatusPanel(status) {
-  const qeBar = colorProgressBar(status.qe ?? 0, 10000, 20);
-  const tasksDone = status.taskSummary?.done ?? 0;
-  const tasksTotal = status.taskSummary?.total ?? 1;
-  const taskBar = colorProgressBar(tasksDone, tasksTotal, 12);
-  return heroBox(`${theme.symbols.diamond} Account Status`, [
-    blankLine(),
-    metric('Account', displayValue(status.accountName), { tone: ANSI.brightCyan }),
-    metric('Wallet', status.wallet ? shortAddress(status.wallet) : '?', { tone: ANSI.warmGray }),
-    blankLine(),
-    `  ${color('── Performance ──', ANSI.darkGray)}`,
-    blankLine(),
-    `${metric('QE', displayValue(status.qe), { tone: ANSI.brightCyan })}    ${qeBar}`,
-    `${metric('Rank', displayValue(status.rank), { tone: ANSI.gold })}    ${metric('DACC', displayValue(status.dacc), { labelWidth: 4, tone: ANSI.brightGreen })}`,
-    `${metric('Badges', `${displayValue(status.badges)}/${displayValue(status.badgeTotal)}`, { tone: ANSI.brightMagenta })}    ${metric('Tasks', `${tasksDone}/${tasksTotal}`, { labelWidth: 5, tone: ANSI.green })} ${taskBar}`,
-    `${metric('Streak', displayValue(status.streak), { tone: ANSI.orange })}    ${metric('Referrals', displayValue(status.referralCount), { labelWidth: 9, tone: ANSI.lavender })}`,
-    `${metric('Faucet', displayValue(status.faucetAvailable), { tone: status.faucetAvailable ? ANSI.brightGreen : ANSI.brightYellow })}`,
-    blankLine(),
-    `  ${color('── Network ──', ANSI.darkGray)}`,
-    blankLine(),
-    `${metric('Block', displayValue(status.network?.blockNumber), { tone: ANSI.slate })}    ${metric('TPS', displayValue(status.network?.tps), { labelWidth: 3, tone: ANSI.teal })}    ${metric('BT', displayValue(status.network?.blockTime), { labelWidth: 2, tone: ANSI.slate })}`,
-    blankLine(),
-    status.errors?.length
-      ? `  ${color(theme.symbols.fail, ANSI.red)} ${color('Errors:', ANSI.red)} ${status.errors.map((item) => color(shortenError(item), ANSI.coral)).join(` ${color('|', ANSI.darkGray)} `)}`
-      : `  ${color(theme.symbols.ok, ANSI.brightGreen)} ${color('No errors', ANSI.slate)}`,
-    blankLine(),
-  ], 100, { tone: ANSI.brightCyan });
-}
-
-// ── Action result ───────────────────────────────────────
-
-function renderActionResult(title, lines) {
-  const formatted = lines.map((line) =>
-    `  ${color(theme.symbols.arrowRight, ANSI.teal)} ${line}`
-  );
-  return box(`${theme.symbols.ready} ${title}`, formatted, 96, { tone: ANSI.teal });
-}
-
-// ── Transaction panel ───────────────────────────────────
-
-function renderTxPanel(title, payload = {}, { amount = null, rankKey = null } = {}) {
-  return box(`${theme.symbols.chain} ${title}`, [
-    blankLine(),
-    amount != null ? metric('Amount', amount, { tone: ANSI.brightGreen }) : null,
-    rankKey ? metric('Rank', rankKey, { tone: ANSI.gold }) : null,
-    metric('Tx', shortHash(payload.hash || payload.txHash || ''), { tone: ANSI.brightCyan }),
-    metric('Explorer', shortUrl(payload.explorer || ''), { tone: ANSI.slate }),
-    blankLine(),
-  ].filter(Boolean), 96, { tone: ANSI.mint });
-}
-
-// ── Loop panel ──────────────────────────────────────────
-
-function renderLoopPanel(title, payload = {}) {
-  return box(`${theme.symbols.circle} ${title}`, [
-    blankLine(),
-    metric('Account', displayValue(payload.account), { tone: ANSI.brightCyan }),
-    metric('Duration', `${displayValue(payload.durationHours)}h`, { tone: ANSI.warmGray }),
-    metric('Interval', `${displayValue(payload.intervalMinutes)}m`, { tone: ANSI.warmGray }),
-    metric('Runs', Array.isArray(payload.runs) ? payload.runs.length : 0, { tone: ANSI.brightGreen }),
-    blankLine(),
-  ], 96, { tone: ANSI.steel });
-}
-
-// ── Proxy panel ─────────────────────────────────────────
-
-function renderProxyPanel(proxyState = {}) {
-  if (!proxyState || !proxyState.total) return '';
-  const summary = [
-    blankLine(),
-    `  ${pill(`${theme.symbols.bullet} ${displayValue(proxyState.total)} total`, ANSI.brightWhite)}  ${pill(`${theme.symbols.ok} ${displayValue(proxyState.active)} active`, ANSI.brightGreen)}  ${pill(`${theme.symbols.ok} ${displayValue(proxyState.healthy)} healthy`, ANSI.mint)}  ${pill(`${theme.symbols.stale} ${displayValue(proxyState.cooldown)} cooldown`, ANSI.brightYellow)}  ${pill(`${theme.symbols.circle} ${displayValue(proxyState.unused)} unused`, ANSI.darkGray)}`,
-    blankLine(),
-  ];
-  const assignmentRows = Array.isArray(proxyState.assignments)
-    ? proxyState.assignments.map((item) => [
-        color(item.key, ANSI.brightWhite),
-        color(item.label || item.proxyUrl, ANSI.warmGray),
-        color(item.source, ANSI.slate),
-      ])
-    : [];
-  const proxyRows = Array.isArray(proxyState.rows)
-    ? proxyState.rows.map((row) => [
-        color(row.label || row.url, ANSI.warmGray),
-        toneStatus(row.status === 'ok' ? 'ok' : row.status === 'error' ? 'error' : row.status),
-        row.assignedTo.length ? color(row.assignedTo.join(', '), ANSI.brightWhite) : color('—', ANSI.darkGray),
-        row.lastError ? color(shortenError(row.lastError), ANSI.coral) : color('—', ANSI.darkGray),
-      ])
-    : [];
-  const failoverLines = Array.isArray(proxyState.failovers) && proxyState.failovers.length
-    ? proxyState.failovers.map((event) =>
-        `  ${color(event.key, ANSI.brightCyan)} ${color(theme.symbols.arrow, ANSI.darkGray)} ${color(shortUrl(event.from || '—'), ANSI.warmGray)} ${color(theme.symbols.arrow, ANSI.brightYellow)} ${color(shortUrl(event.to || '—'), ANSI.brightGreen)}`
-      )
-    : [color('  None', ANSI.darkGray)];
-
+  const ok = rows.filter((r) => r.ok);
+  const fail = rows.filter((r) => !r.ok);
   return [
-    heavyBox(`${theme.symbols.shield} Proxy Pool`, summary, 132, { tone: ANSI.steel }),
-    box(`${theme.symbols.arrow} Wallet → Proxy`, [table(['Wallet', 'Proxy', 'Source'], assignmentRows.length ? assignmentRows : [[color('—', ANSI.darkGray), color('—', ANSI.darkGray), color('—', ANSI.darkGray)]])], 132, { tone: ANSI.teal }),
-    box(`${theme.symbols.bullet} Proxy Status`, [table(['Proxy', 'Status', 'Wallets', 'Last Error'], proxyRows.length ? proxyRows : [[color('—', ANSI.darkGray), color('—', ANSI.darkGray), color('—', ANSI.darkGray), color('—', ANSI.darkGray)]])], 132, { tone: ANSI.teal }),
-    box(`${theme.symbols.circle} Failovers`, failoverLines, 132, { tone: ANSI.brightYellow }),
+    box(`${S.diamond} ${title}`, [
+      '',
+      `  ${pill(`${rows.length} accounts`, C.label)}   ${pill(`${S.ok} ${ok.length} ok`, C.success)}   ${pill(`${S.fail} ${fail.length} failed`, fail.length ? C.error : C.muted)}`,
+      '',
+      table(['Account', 'Status'], rows.map((r) => [
+        color(r.account, C.value),
+        r.ok ? color(`${S.ok} OK`, C.success) : color(`${S.fail} ERR`, C.error),
+      ])),
+      '',
+    ], 100),
+    renderFailuresPanel(fail),
   ].filter(Boolean).join('\n');
 }
 
-// ── Tracking panel ──────────────────────────────────────
+// ── Status (single account) ─────────────────────────────
+
+function renderStatusPanel(status) {
+  const qeBar = colorProgressBar(status.qe ?? 0, 10000, 20);
+  const td = status.taskSummary?.done ?? 0;
+  const tt = status.taskSummary?.total ?? 1;
+  const taskBar = colorProgressBar(td, tt, 12);
+  return heroBox(`${S.diamond} Account Status`, [
+    '',
+    metric('Account', displayValue(status.accountName), { tone: C.primary }),
+    metric('Wallet', status.wallet ? shortAddress(status.wallet) : '?', { tone: C.label }),
+    '',
+    color('  ── Performance ─────────────────────', C.muted),
+    '',
+    `${metric('QE', displayValue(status.qe), { tone: C.primary })}   ${qeBar}`,
+    `${metric('Rank', displayValue(status.rank), { tone: C.warn })}   ${metric('DACC', displayValue(status.dacc), { labelWidth: 5, tone: C.success })}`,
+    `${metric('Badges', `${displayValue(status.badges)}/${displayValue(status.badgeTotal)}`, { tone: C.accent })}   ${metric('Tasks', `${td}/${tt}`, { labelWidth: 6, tone: C.success })} ${taskBar}`,
+    `${metric('Streak', displayValue(status.streak), { tone: C.warn })}   ${metric('Referrals', displayValue(status.referralCount), { labelWidth: 10, tone: C.accent })}`,
+    metric('Faucet', displayValue(status.faucetAvailable), { tone: status.faucetAvailable ? C.success : C.warn }),
+    '',
+    color('  ── Network ─────────────────────────', C.muted),
+    '',
+    `${metric('Block', displayValue(status.network?.blockNumber), { tone: C.label })}   ${metric('TPS', displayValue(status.network?.tps), { labelWidth: 4, tone: C.primary })}   ${metric('BT', displayValue(status.network?.blockTime), { labelWidth: 3, tone: C.label })}`,
+    '',
+    status.errors?.length
+      ? `  ${color(S.fail, C.error)} ${color('Errors:', C.error)} ${status.errors.map((e) => color(shortenError(e), C.errorText)).join(` ${color('|', C.muted)} `)}`
+      : `  ${color(S.ok, C.success)} ${color('No errors', C.muted)}`,
+    '',
+  ], 96);
+}
+
+// ── Action Result ───────────────────────────────────────
+
+function renderActionResult(title, lines) {
+  return box(`${S.tri} ${title}`, lines.map((l) =>
+    `  ${color(S.tri, C.primary)} ${l}`
+  ), 96);
+}
+
+// ── Transaction ─────────────────────────────────────────
+
+function renderTxPanel(title, payload = {}, { amount = null, rankKey = null } = {}) {
+  const lines = [''];
+  if (amount != null) lines.push(metric('Amount', amount, { tone: C.success }));
+  if (rankKey)        lines.push(metric('Rank', rankKey, { tone: C.warn }));
+  lines.push(
+    metric('Tx', shortHash(payload.hash || payload.txHash || ''), { tone: C.primary }),
+    metric('Explorer', shortUrl(payload.explorer || ''), { tone: C.muted }),
+    '',
+  );
+  return box(`${S.arrow} ${title}`, lines, 96);
+}
+
+// ── Loop ────────────────────────────────────────────────
+
+function renderLoopPanel(title, payload = {}) {
+  return box(`${S.circle} ${title}`, [
+    '',
+    metric('Account', displayValue(payload.account), { tone: C.primary }),
+    metric('Duration', `${displayValue(payload.durationHours)}h`, { tone: C.value }),
+    metric('Interval', `${displayValue(payload.intervalMinutes)}m`, { tone: C.value }),
+    metric('Runs', Array.isArray(payload.runs) ? payload.runs.length : 0, { tone: C.success }),
+    '',
+  ], 96);
+}
+
+// ── Proxy Pool ──────────────────────────────────────────
+
+function renderProxyPanel(proxyState = {}) {
+  if (!proxyState || !proxyState.total) return '';
+  const stats = [
+    '',
+    `  ${pill(`${displayValue(proxyState.total)} total`, C.value)}   ${pill(`${displayValue(proxyState.active)} active`, C.success)}   ${pill(`${displayValue(proxyState.healthy)} healthy`, C.success)}   ${pill(`${displayValue(proxyState.cooldown)} cooldown`, C.warn)}   ${pill(`${displayValue(proxyState.unused)} unused`, C.muted)}`,
+    '',
+  ];
+  const aRows = Array.isArray(proxyState.assignments)
+    ? proxyState.assignments.map((a) => [color(a.key, C.value), color(a.label || a.proxyUrl, C.label), color(a.source, C.muted)])
+    : [];
+  const pRows = Array.isArray(proxyState.rows)
+    ? proxyState.rows.map((r) => [
+        color(r.label || r.url, C.label),
+        toneStatus(r.status === 'ok' || r.status === 'healthy' ? 'ok' : r.status === 'error' ? 'error' : r.status),
+        r.assignedTo.length ? color(r.assignedTo.join(', '), C.value) : color('—', C.muted),
+        r.lastError ? color(shortenError(r.lastError), C.errorText) : color('—', C.muted),
+      ])
+    : [];
+  const fLines = Array.isArray(proxyState.failovers) && proxyState.failovers.length
+    ? proxyState.failovers.map((e) =>
+        `  ${color(e.key, C.primary)} ${color(S.arrow, C.muted)} ${color(shortUrl(e.from || '—'), C.label)} ${color(S.arrow, C.warn)} ${color(shortUrl(e.to || '—'), C.success)}`
+      )
+    : [`  ${color('None', C.muted)}`];
+
+  const dash = (h, r) => r.length ? table(h, r) : `  ${color('—', C.muted)}`;
+  return [
+    box(`${S.diamond} Proxy Pool`, stats, 132),
+    box(`${S.arrow} Wallet ${S.arrow} Proxy`, [dash(['Wallet', 'Proxy', 'Source'], aRows)], 132),
+    box(`${S.bullet} Proxy Status`, [dash(['Proxy', 'Status', 'Wallets', 'Last Error'], pRows)], 132),
+    box(`${S.circle} Failovers`, fLines, 132),
+  ].filter(Boolean).join('\n');
+}
+
+// ── Tracking ────────────────────────────────────────────
 
 function renderTrackingPanel(payload = {}) {
-  return box(`${theme.symbols.fire} Tracking`, [
-    blankLine(),
-    metric('Account', displayValue(payload.accountName || payload.account), { tone: ANSI.brightCyan }),
-    `${metric('QE', displayValue(payload.qe), { tone: ANSI.brightCyan })}    ${colorProgressBar(payload.qe ?? 0, 10000, 16)}`,
-    metric('Rank', displayValue(payload.rank), { tone: ANSI.gold }),
-    metric('Badges', `${displayValue(payload.badges)}/${displayValue(payload.badgeTotal)}`, { tone: ANSI.brightMagenta }),
-    blankLine(),
-  ], 96, { tone: ANSI.deepPurple });
+  return box(`${S.star} Tracking`, [
+    '',
+    metric('Account', displayValue(payload.accountName || payload.account), { tone: C.primary }),
+    `${metric('QE', displayValue(payload.qe), { tone: C.primary })}   ${colorProgressBar(payload.qe ?? 0, 10000, 16)}`,
+    metric('Rank', displayValue(payload.rank), { tone: C.warn }),
+    metric('Badges', `${displayValue(payload.badges)}/${displayValue(payload.badgeTotal)}`, { tone: C.accent }),
+    '',
+  ], 96);
 }
 
-// ── Campaign panel ──────────────────────────────────────
+// ── Campaign ────────────────────────────────────────────
 
 function renderCampaignPanel(payload = {}) {
-  return box(`${theme.symbols.rocket} Campaign`, [
-    blankLine(),
-    metric('Loops', displayValue(payload.loops), { tone: ANSI.brightCyan }),
-    metric('Runs', Array.isArray(payload.results) ? payload.results.length : 0, { tone: ANSI.brightGreen }),
-    blankLine(),
-  ], 96, { tone: ANSI.deepPurple });
+  return box(`${S.star} Campaign`, [
+    '',
+    metric('Loops', displayValue(payload.loops), { tone: C.primary }),
+    metric('Runs', Array.isArray(payload.results) ? payload.results.length : 0, { tone: C.success }),
+    '',
+  ], 96);
 }
 
-// ── Mint all panel ──────────────────────────────────────
+// ── Mint All ────────────────────────────────────────────
 
 function renderMintAllPanel(payload = {}) {
-  return box(`${theme.symbols.star} Mint All Ranks`, [
-    blankLine(),
-    metric('Updated', displayValue(payload.updatedAt), { tone: ANSI.slate }),
-    metric('Keys', Object.keys(payload || {}).join(', ') || '?', { tone: ANSI.warmGray }),
-    blankLine(),
-  ], 96, { tone: ANSI.mint });
+  return box(`${S.star} Mint All Ranks`, [
+    '',
+    metric('Updated', displayValue(payload.updatedAt), { tone: C.muted }),
+    metric('Keys', Object.keys(payload || {}).join(', ') || '?', { tone: C.value }),
+    '',
+  ], 96);
 }
 
-// ── Wallet login panel ──────────────────────────────────
+// ── Wallet Login ────────────────────────────────────────
 
 function renderWalletLoginPanel(payload = {}) {
-  return box(`${theme.symbols.ok} Wallet Login`, [
-    blankLine(),
-    metric('Wallet', payload.wallet ? shortAddress(payload.wallet) : '?', { tone: ANSI.brightCyan }),
+  return box(`${S.ok} Wallet Login`, [
+    '',
+    metric('Wallet', payload.wallet ? shortAddress(payload.wallet) : '?', { tone: C.primary }),
     metric('Status', payload.ok
-      ? color(`${theme.symbols.ok} Authenticated`, ANSI.brightGreen)
-      : color(`${theme.symbols.fail} Error`, ANSI.red)),
-    blankLine(),
-  ], 96, { tone: ANSI.mint });
+      ? color(`${S.ok} Authenticated`, C.success)
+      : color(`${S.fail} Error`, C.error)),
+    '',
+  ], 96);
 }
 
-// ── Receive panel ───────────────────────────────────────
+// ── Receive ─────────────────────────────────────────────
 
 function renderReceivePanel(payload = {}, fallback = {}) {
-  return box(`${theme.symbols.arrow} Receive Quest`, [
-    blankLine(),
-    metric('Count', displayValue(payload.count ?? fallback.count), { tone: ANSI.warmGray }),
-    metric('Amount', displayValue(payload.amount ?? fallback.amount), { tone: ANSI.brightGreen }),
-    metric('Status', color('Complete', ANSI.brightGreen)),
-    blankLine(),
-  ], 96, { tone: ANSI.mint });
+  return box(`${S.arrow} Receive Quest`, [
+    '',
+    metric('Count', displayValue(payload.count ?? fallback.count), { tone: C.value }),
+    metric('Amount', displayValue(payload.amount ?? fallback.amount), { tone: C.success }),
+    metric('Status', color('Complete', C.success)),
+    '',
+  ], 96);
 }
 
-// ── Mesh panel ──────────────────────────────────────────
+// ── Mesh ────────────────────────────────────────────────
 
 function renderMeshPanel(payload = {}, fallback = {}) {
-  return box(`${theme.symbols.chain} TX Mesh`, [
-    blankLine(),
-    metric('Count', displayValue(payload.count ?? fallback.count), { tone: ANSI.warmGray }),
-    metric('Amount', displayValue(payload.amount ?? fallback.amount), { tone: ANSI.brightGreen }),
-    metric('Status', color('Complete', ANSI.brightGreen)),
-    blankLine(),
-  ], 96, { tone: ANSI.teal });
+  return box(`${S.arrow} TX Mesh`, [
+    '',
+    metric('Count', displayValue(payload.count ?? fallback.count), { tone: C.value }),
+    metric('Amount', displayValue(payload.amount ?? fallback.amount), { tone: C.success }),
+    metric('Status', color('Complete', C.success)),
+    '',
+  ], 96);
 }
 
-// ── Mint rank panel ─────────────────────────────────────
+// ── Mint Rank ───────────────────────────────────────────
 
 function renderMintRankPanel(payload = {}, rankKey = null) {
-  return renderTxPanel(`${theme.symbols.star} Mint Rank`, payload, { rankKey: payload.rankKey || rankKey });
+  return renderTxPanel(`${S.star} Mint Rank`, payload, { rankKey: payload.rankKey || rankKey });
 }
 
-// ── Mint scan ───────────────────────────────────────────
+// ── Mint Scan ───────────────────────────────────────────
 
 function renderMintScan(rows = []) {
-  const tableRows = rows.map((row) => [
-    color(row.rankName || row.badgeKey, ANSI.brightWhite),
-    row.badgeOwned ? color(`${theme.symbols.ok} Badge`, ANSI.brightGreen) : color('—', ANSI.darkGray),
-    row.eligibleByQe ? color(`${theme.symbols.ok} QE`, ANSI.brightGreen) : color('—', ANSI.darkGray),
-    row.backendReady
-      ? color(`${theme.symbols.ok} Ready`, ANSI.brightGreen)
-      : (row.degraded ? color(`${theme.symbols.stale} Degraded`, ANSI.brightYellow) : color('Locked', ANSI.darkGray)),
-    row.minted ? color(`${theme.symbols.ok} Minted`, ANSI.brightCyan) : color('Open', ANSI.slate),
+  const tRows = rows.map((r) => [
+    color(r.rankName || r.badgeKey, C.value),
+    r.badgeOwned   ? color(`${S.ok} Badge`,   C.success)  : color('—', C.muted),
+    r.eligibleByQe ? color(`${S.ok} QE`,      C.success)  : color('—', C.muted),
+    r.backendReady ? color(`${S.ok} Ready`,    C.success)  : r.degraded ? color(`${S.stale} Degraded`, C.warn) : color('Locked', C.muted),
+    r.minted       ? color(`${S.ok} Minted`,   C.primary)  : color('Open', C.label),
   ]);
-  return box(`${theme.symbols.diamond} Mint Scan`, [
-    blankLine(),
-    table(['Rank', 'Badge', 'QE', 'Backend', 'Chain'], tableRows),
-    blankLine(),
-  ], 88, { tone: ANSI.mint });
+  return box(`${S.diamond} Mint Scan`, [
+    '',
+    table(['Rank', 'Badge', 'QE', 'Backend', 'Chain'], tRows),
+    '',
+  ], 88);
 }
 
 module.exports = {
-  renderHeader,
-  renderSystemCheck,
-  renderProgress,
-  renderSummary,
-  renderSummaryBundle,
-  renderFailuresPanel,
-  renderMultiResultPanel,
-  renderStatusPanel,
-  renderActionResult,
-  renderTxPanel,
-  renderLoopPanel,
-  renderProxyPanel,
-  renderTrackingPanel,
-  renderCampaignPanel,
-  renderMintAllPanel,
-  renderWalletLoginPanel,
-  renderReceivePanel,
-  renderMeshPanel,
-  renderMintRankPanel,
-  renderMintScan,
-  displayValue,
+  renderHeader, renderSystemCheck, renderProgress,
+  renderSummary, renderSummaryBundle, renderFailuresPanel,
+  renderMultiResultPanel, renderStatusPanel, renderActionResult,
+  renderTxPanel, renderLoopPanel, renderProxyPanel,
+  renderTrackingPanel, renderCampaignPanel, renderMintAllPanel,
+  renderWalletLoginPanel, renderReceivePanel, renderMeshPanel,
+  renderMintRankPanel, renderMintScan, displayValue,
 };

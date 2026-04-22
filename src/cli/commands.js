@@ -39,6 +39,8 @@ const {
   renderMintRankPanel,
   renderMintScan,
 } = require('../tui/panels');
+const { color, C, theme } = require('../tui/theme');
+const S = theme.symbols;
 
 const DIRECT_COMMANDS = new Set([
   'manual',
@@ -189,7 +191,7 @@ async function handleSetup(args) {
     } catch {}
   }
 
-  console.log(`Saved account ${accountName}`);
+  console.log(`${color(S.ok, C.success)} Saved account ${color(accountName, C.primary)}`);
 }
 
 async function handleStatusAll(args) {
@@ -202,13 +204,13 @@ async function handleStatusAll(args) {
     }),
     concurrency: 4,
     onStart: ({ account, index, total }) => {
-      if (!args.quiet) console.log(`Loading ${account} (${index + 1}/${total})...`);
+      if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
     },
     onComplete: ({ account, index, total, ok, error }) => {
       if (args.quiet) return;
       console.log(ok
-        ? `Loaded ${account} (${index + 1}/${total})`
-        : `Failed ${account} (${index + 1}/${total}) - ${error}`);
+        ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
+        : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
     },
   });
   const parts = [renderSummaryBundle(summarizeAccounts(result.results))];
@@ -256,17 +258,17 @@ async function handleRunAll(args) {
     options,
     onStart: ({ account, index, total }) => {
       if (liveProxyDashboard) setProgress(account, `running ${index + 1}/${total}`, 'starting');
-      else if (!args.quiet) console.log(`Running ${account} (${index + 1}/${total})...`);
+      else if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
     },
     onComplete: ({ account, index, total, ok, error }) => {
       if (liveProxyDashboard) setProgress(account, ok ? `done ${index + 1}/${total}` : `failed ${index + 1}/${total}`, ok ? 'complete' : error);
       else if (!args.quiet) console.log(ok
-        ? `Done ${account} (${index + 1}/${total})`
-        : `Failed ${account} (${index + 1}/${total}) - ${error}`);
+        ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
+        : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
     },
     onProgress: ({ account, step, message }) => {
       if (liveProxyDashboard && (step || message)) setProgress(account, step || 'running', message || '');
-      else if (!args.quiet && step && message) console.log(`  ${account} | ${step} | ${message}`);
+      else if (!args.quiet && step && message) console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(step, C.primary)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
     },
   });
   const parts = [renderSummaryBundle(summarizeAccounts(result.results))];
@@ -306,7 +308,7 @@ async function handleRun(args) {
     profile: args.profile,
   };
   const result = await context.services.automation.run(options, ({ step, message }) => {
-    if (!args.quiet && step && message) console.log(`${step} | ${message}`);
+    if (!args.quiet && step && message) console.log(`  ${color(S.tri, C.primary)} ${color(step, C.value)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
   });
   if (args.json) console.log(JSON.stringify(result, null, 2));
 }
@@ -382,7 +384,7 @@ async function runCommand(args) {
   if (command === 'clear-safety') {
     const bot = createDirectBot(args);
     bot.clearSafety();
-    console.log('✅ Safety state cleared.');
+    console.log(`${color(S.ok, C.success)} Safety state cleared.`);
     return;
   }
 
@@ -395,7 +397,7 @@ async function runCommand(args) {
   if (command === 'child-wallets') {
     const bot = createDirectBot(args);
     const result = bot.createChildWallets(args.txCount || 3);
-    console.log(`✅ Created ${result.wallets.length} child wallets in ${result.file}`);
+    console.log(`${color(S.ok, C.success)} Created ${color(result.wallets.length, C.primary)} child wallets in ${color(result.file, C.value)}`);
     return;
   }
 
@@ -604,10 +606,10 @@ async function runCommand(args) {
     while (true) {
       try {
         await bot.run(buildRunOptions(args));
-        console.log(`Sleeping ${args.interval}m...`);
+        console.log(`  ${color(S.circle, C.muted)} Sleeping ${color(`${args.interval}m`, C.label)}...`);
         await new Promise((resolve) => setTimeout(resolve, args.interval * 60 * 1000));
       } catch (error) {
-        console.error(`Error: ${error.message}`);
+        console.error(`  ${color(S.fail, C.error)} ${color(error.message, C.errorText)}`);
         await new Promise((resolve) => setTimeout(resolve, 60 * 1000));
       }
     }
