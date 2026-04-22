@@ -39,6 +39,9 @@ function parseArgs(argv) {
     else if (arg === '--quiet') parsed.quiet = true;
     else if (arg === '--json') parsed.json = true;
     else if (arg === '--fast') parsed.fast = true;
+    else if (arg === '--strategy') parsed.strategyFlag = true;
+    else if (arg === '--no-human') parsed.humanMode = false;
+    else if (arg === '--help' || arg === '-h') parsed.command = 'help';
     else if (!arg.startsWith('--')) positional.push(arg);
   }
 
@@ -49,4 +52,62 @@ function parseArgs(argv) {
   return parsed;
 }
 
-module.exports = { parseArgs };
+function printHelp() {
+  console.log(`DAC Inception Bot
+
+Usage:
+  node src/cli/main.js <command> [options]
+
+Commands:
+  run             Full automation cycle (default)
+  run-all         Automation across all accounts
+  status          Show account status
+  status-all      Status for all accounts
+  setup           Save account credentials
+  menu            Interactive launcher
+  manual          One task at a time
+  strategy        Smart strategy mode
+  loop            Continuous loop mode
+  tx-grind        Send transactions
+  receive         Receive quest
+  receive-all     Receive across all accounts
+  tx-mesh         Send + receive mesh
+  tx-mesh-all     Mesh across all accounts
+  burn            Burn DACC for QE
+  stake           Stake DACC
+  mint-scan       Scan mintable ranks
+  mint-rank       Mint a specific rank
+  mint-all-ranks  Mint all eligible ranks
+  mint-all-ranks-all  Mint across all accounts
+  track           Snapshot tracking
+  track-all       Track across all accounts
+  campaign        Campaign cycle
+  campaign-all    Campaign across all accounts
+  faucet-loop     24h faucet loop
+  faucet-loop-all Faucet loop all accounts
+  wallet-login    Auth via wallet
+  wallet-login-all Auth all accounts
+  child-wallets   Generate child wallets
+  human-status    Show human mode status
+  clear-safety    Reset safety state
+
+Options:
+  --account <name>      Named account
+  --private-key <key>   Private key
+  --cookies <str>       Session cookies
+  --csrf <token>        CSRF token
+  --interval <min>      Loop interval (minutes)
+  --tx-count <n>        Transaction count
+  --tx-amount <amt>     Amount per tx
+  --burn <amt>          Burn amount
+  --stake <amt>         Stake amount
+  --profile <name>      Strategy: safe | balanced | aggressive
+  --rank-key <key>      Rank key for mint
+  --duration-hours <h>  Faucet loop duration
+  --quiet               Less output
+  --fast                Shorter delays
+  --json                JSON output
+`);
+}
+
+module.exports = { parseArgs, printHelp };

@@ -1,4 +1,4 @@
-const { DACBot } = require('../legacy/runtime');
+const { DACBot } = require('../core/bot');
 const statusDomain = require('./status');
 const { resolveAccountProxy } = require('../addons/proxies');
 

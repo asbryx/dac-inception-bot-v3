@@ -3,22 +3,18 @@ const path = require('path');
 const { deriveWalletAddress } = require('../chain/wallet');
 const { upsertAccount, loadAccountsConfig } = require('../config/accounts');
 const { prompt } = require('./prompts');
-const {
-  DACBot,
-  orchestrateCampaignAll,
-  orchestrateTrackAll,
-  orchestrateMintAllRanks,
-  orchestrateReceiveAll,
-  orchestrateTxMeshAll,
-  runMenu,
-  runManualActionMenu,
-  runFaucetLoop,
-  orchestrateFaucetLoopAll,
-} = require('../legacy/runtime');
+const { DACBot } = require('../core/bot');
 const { createConfiguredProxyRotation } = require('../addons/proxies');
 const { createAccountContext, createSingleAccountContext } = require('../domain/context');
 const { runStatusAll } = require('../orchestration/status-all');
 const { runAutomationAll } = require('../orchestration/run-all');
+const { runCampaignAll } = require('../orchestration/campaign-all');
+const { runTrackAll } = require('../orchestration/track-all');
+const { runMintAllRanksAll } = require('../orchestration/mint-all');
+const { runReceiveAll } = require('../orchestration/receive-all');
+const { runTxMeshAll } = require('../orchestration/mesh-all');
+const { runFaucetLoop, runFaucetLoopAll } = require('../orchestration/faucet-loop');
+const { runInteractiveLauncher } = require('../tui/launcher');
 const { summarizeAccounts } = require('../domain/summary');
 const {
   renderSummary,
@@ -41,37 +37,6 @@ const {
 } = require('../tui/panels');
 const { color, C, theme } = require('../tui/theme');
 const S = theme.symbols;
-
-const DIRECT_COMMANDS = new Set([
-  'manual',
-  'strategy',
-  'menu',
-  'interactive',
-  'wallet-login',
-  'wallet-login-all',
-  'loop',
-  'tx-grind',
-  'receive',
-  'receive-all',
-  'tx-mesh',
-  'tx-mesh-all',
-  'burn',
-  'stake',
-  'child-wallets',
-  'mint-scan',
-  'mint-rank',
-  'mint-all-ranks',
-  'mint-all-ranks-all',
-  'track',
-  'track-all',
-  'campaign',
-  'campaign-all',
-  'faucet-loop',
-  'faucet-loop-all',
-  'human-status',
-  'clear-safety',
-  'help',
-]);
 
 function buildRunOptions(args, overrides = {}) {
   return {
@@ -148,26 +113,12 @@ function createLiveProxyRenderer(title, proxyRotation, progressRows = []) {
   };
 }
 
-function buildLegacyArgv(args) {
-  const argv = ['node', 'src/legacy/runtime.js'];
-  if (args.command) argv.push(args.command);
-  if (args.account) argv.push('--account', args.account);
-  if (args.privateKey) argv.push('--private-key', args.privateKey);
-  if (args.cookies) argv.push('--cookies', args.cookies);
-  if (args.csrf) argv.push('--csrf', args.csrf);
-  if (args.interval != null) argv.push('--interval', String(args.interval));
-  if (args.durationHours != null) argv.push('--duration-hours', String(args.durationHours));
-  if (args.txCount != null) argv.push('--tx-count', String(args.txCount));
-  if (args.txAmount) argv.push('--tx-amount', String(args.txAmount));
-  if (args.burnAmount) argv.push('--burn', String(args.burnAmount));
-  if (args.stakeAmount) argv.push('--stake', String(args.stakeAmount));
-  if (args.profile) argv.push('--profile', String(args.profile));
-  if (args.rankKey) argv.push('--rank-key', String(args.rankKey));
-  if (args.quiet) argv.push('--quiet');
-  if (args.fast) argv.push('--fast');
-  if (args.json) argv.push('--json');
-  if (args.strategyFlag) argv.push('--strategy');
-  return argv;
+function makeContextFactory(args, proxyRotation) {
+  return (accountName) => createAccountContext(accountName, {
+    fastMode: !!args.fast,
+    humanMode: !args.quiet,
+    proxyRotation,
+  });
 }
 
 async function handleSetup(args) {
@@ -197,11 +148,7 @@ async function handleSetup(args) {
 async function handleStatusAll(args) {
   const proxyRotation = getSharedProxyRotation(args);
   const result = await runStatusAll({
-    contextFactory: (accountName) => createAccountContext(accountName, {
-      fastMode: !!args.fast,
-      humanMode: !args.quiet,
-      proxyRotation,
-    }),
+    contextFactory: makeContextFactory(args, proxyRotation),
     concurrency: 4,
     onStart: ({ account, index, total }) => {
       if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
@@ -250,11 +197,7 @@ async function handleRunAll(args) {
     stakeAmount: args.stakeAmount,
   };
   const result = await runAutomationAll({
-    contextFactory: (accountName) => createAccountContext(accountName, {
-      fastMode: !!args.fast,
-      humanMode: !args.quiet,
-      proxyRotation,
-    }),
+    contextFactory: makeContextFactory(args, proxyRotation),
     options,
     onStart: ({ account, index, total }) => {
       if (liveProxyDashboard) setProgress(account, `running ${index + 1}/${total}`, 'starting');
@@ -352,21 +295,11 @@ async function runCommand(args) {
 
   if (command === 'wallet-login-all') {
     const proxyRotation = getSharedProxyRotation(args);
-    const all = await runStatusAll({
-      contextFactory: (accountName) => createAccountContext(accountName, {
-        fastMode: !!args.fast,
-        humanMode: !args.quiet,
-        proxyRotation,
-      }),
-      concurrency: 1,
-    });
+    const contextFactory = makeContextFactory(args, proxyRotation);
+    const all = await runStatusAll({ contextFactory, concurrency: 1 });
     const rows = await Promise.all(all.accounts.map(async (account) => {
       try {
-        const context = await createAccountContext(account, {
-          fastMode: !!args.fast,
-          humanMode: !args.quiet,
-          proxyRotation,
-        });
+        const context = await contextFactory(account);
         return {
           account,
           ok: true,
@@ -419,13 +352,19 @@ async function runCommand(args) {
   }
 
   if (command === 'receive-all') {
-    const result = await orchestrateReceiveAll({
+    const proxyRotation = getSharedProxyRotation(args);
+    const result = await runReceiveAll({
+      contextFactory: makeContextFactory(args, proxyRotation),
       count: args.txCount,
       amount: args.txAmount,
-      verbose: !args.quiet,
-      humanMode: args.humanMode !== false,
-      fastMode: !!args.fast,
-      proxyRotation: getSharedProxyRotation(args),
+      onStart: ({ account, index, total }) => {
+        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+      },
+      onComplete: ({ account, index, total, ok, error }) => {
+        if (!args.quiet) console.log(ok
+          ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
+          : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
+      },
     });
     printStructured(args, result, (payload) => renderMultiResultPanel('Receive All', payload));
     return;
@@ -443,13 +382,19 @@ async function runCommand(args) {
   }
 
   if (command === 'tx-mesh-all') {
-    const result = await orchestrateTxMeshAll({
+    const proxyRotation = getSharedProxyRotation(args);
+    const result = await runTxMeshAll({
+      contextFactory: makeContextFactory(args, proxyRotation),
       count: args.txCount,
       amount: args.txAmount,
-      verbose: !args.quiet,
-      humanMode: args.humanMode !== false,
-      fastMode: !!args.fast,
-      proxyRotation: getSharedProxyRotation(args),
+      onStart: ({ account, index, total }) => {
+        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+      },
+      onComplete: ({ account, index, total, ok, error }) => {
+        if (!args.quiet) console.log(ok
+          ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
+          : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
+      },
     });
     printStructured(args, result, (payload) => renderMultiResultPanel('TX Mesh All', payload));
     return;
@@ -494,11 +439,17 @@ async function runCommand(args) {
   }
 
   if (command === 'mint-all-ranks-all') {
-    const result = await orchestrateMintAllRanks({
-      verbose: !args.quiet,
-      humanMode: args.humanMode !== false,
-      fastMode: !!args.fast,
-      proxyRotation: getSharedProxyRotation(args),
+    const proxyRotation = getSharedProxyRotation(args);
+    const result = await runMintAllRanksAll({
+      contextFactory: makeContextFactory(args, proxyRotation),
+      onStart: ({ account, index, total }) => {
+        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+      },
+      onComplete: ({ account, index, total, ok, error }) => {
+        if (!args.quiet) console.log(ok
+          ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
+          : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
+      },
     });
     printStructured(args, result, (payload) => renderMultiResultPanel('Mint All Ranks All', payload));
     return;
@@ -512,11 +463,17 @@ async function runCommand(args) {
   }
 
   if (command === 'track-all') {
-    const result = await orchestrateTrackAll({
-      verbose: !args.quiet,
-      humanMode: args.humanMode !== false,
-      fastMode: !!args.fast,
-      proxyRotation: getSharedProxyRotation(args),
+    const proxyRotation = getSharedProxyRotation(args);
+    const result = await runTrackAll({
+      contextFactory: makeContextFactory(args, proxyRotation),
+      onStart: ({ account, index, total }) => {
+        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+      },
+      onComplete: ({ account, index, total, ok, error }) => {
+        if (!args.quiet) console.log(ok
+          ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
+          : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
+      },
     });
     printStructured(args, result, (payload) => renderMultiResultPanel('Track All', payload));
     return;
@@ -530,12 +487,18 @@ async function runCommand(args) {
   }
 
   if (command === 'campaign-all') {
-    const result = await orchestrateCampaignAll({
+    const proxyRotation = getSharedProxyRotation(args);
+    const result = await runCampaignAll({
+      contextFactory: makeContextFactory(args, proxyRotation),
       profile: args.profile || 'balanced',
-      verbose: !args.quiet,
-      humanMode: args.humanMode !== false,
-      fastMode: !!args.fast,
-      proxyRotation: getSharedProxyRotation(args),
+      onStart: ({ account, index, total }) => {
+        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+      },
+      onComplete: ({ account, index, total, ok, error }) => {
+        if (!args.quiet) console.log(ok
+          ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
+          : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
+      },
     });
     printStructured(args, result, (payload) => renderMultiResultPanel('Campaign All', payload));
     return;
@@ -569,13 +532,10 @@ async function runCommand(args) {
       }
       if (liveProxyDashboard) renderLive();
     };
-    const result = await orchestrateFaucetLoopAll({
+    const result = await runFaucetLoopAll({
+      contextFactory: makeContextFactory(args, proxyRotation),
       durationHours: args.durationHours || 24,
       intervalMinutes: args.interval || 60,
-      verbose: !liveProxyDashboard && !args.quiet,
-      humanMode: args.humanMode !== false,
-      fastMode: !!args.fast,
-      proxyRotation,
       onProgress: liveProxyDashboard ? ({ account, status, detail }) => setProgress(account, status, detail) : null,
     });
     printStructured(args, result, (payload) => [
@@ -586,18 +546,24 @@ async function runCommand(args) {
   }
 
   if (command === 'manual') {
-    const bot = createDirectBot(args);
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       console.log('Manual mode needs a TTY. Use direct commands instead.');
       return;
     }
-    await require('../legacy/runtime').runManualActionMenu(bot, args);
+    const proxyRotation = getSharedProxyRotation(args);
+    const context = await createSingleAccountContext({ ...args, proxyRotation });
+    await runInteractiveLauncher(context, { ...args, proxyRotation });
     return;
   }
 
   if (command === 'menu' || command === 'interactive') {
-    const bot = createDirectBot(args);
-    await runMenu(bot, args);
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      console.log('Interactive menu needs a TTY. Use direct commands instead.');
+      return;
+    }
+    const proxyRotation = getSharedProxyRotation(args);
+    const context = await createSingleAccountContext({ ...args, proxyRotation });
+    await runInteractiveLauncher(context, { ...args, proxyRotation });
     return;
   }
 
@@ -616,8 +582,10 @@ async function runCommand(args) {
     return;
   }
 
-  if (DIRECT_COMMANDS.has(command)) {
-    throw new Error(`Command not yet wired: ${command}`);
+  if (command === 'help') {
+    const { printHelp } = require('./args');
+    printHelp();
+    return;
   }
 
   await handleRun({ ...args, command: 'run' });
@@ -625,6 +593,5 @@ async function runCommand(args) {
 
 module.exports = {
   runCommand,
-  buildLegacyArgv,
   canUseLiveProxyDashboard,
 };
