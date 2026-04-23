@@ -54,24 +54,28 @@ function normalizeStatus({ accountName, wallet, profileData = null, networkData 
 
 function buildStatusFromProfile(profile, catalog, { badgeTotalFromCatalog } = {}) {
   const badgeTotal = typeof badgeTotalFromCatalog === 'function' ? badgeTotalFromCatalog(catalog) : null;
+  // API may return total QE as `qe` directly, or split as `qe_balance` + `waitlist_qe`
+  const inceptionQeVal = Number(profile.qe_balance ?? 0);
+  const waitlistQeVal = Number(profile.waitlist_qe ?? 0);
+  const totalQe = profile.qe != null ? Number(profile.qe) : (inceptionQeVal + waitlistQeVal);
   return {
-    qe: (profile.qe_balance || 0) + (profile.waitlist_qe || 0),
-    inceptionQe: profile.qe_balance || 0,
-    waitlistQe: profile.waitlist_qe || 0,
-    dacc: profile.dacc_balance || '0',
-    txCount: profile.tx_count || 0,
-    rank: profile.user_rank ?? '?',
-    badges: Array.isArray(profile.badges) ? profile.badges.length : 0,
+    qe: totalQe,
+    inceptionQe: profile.qe_balance != null ? inceptionQeVal : totalQe,
+    waitlistQe: waitlistQeVal,
+    dacc: profile.dacc ?? profile.dacc_balance ?? '0',
+    txCount: profile.tx_count ?? profile.txCount ?? 0,
+    rank: profile.rank ?? profile.user_rank ?? '?',
+    badges: profile.badges_count ?? (Array.isArray(profile.badges) ? profile.badges.length : 0),
     badgeTotal,
     badgeCatalogError: catalog?.error || null,
-    streak: profile.streak_days || 0,
-    multiplier: profile.qe_multiplier || 1.0,
-    faucetAvailable: !!profile.faucet_available,
-    faucetCooldownSeconds: profile.faucet_seconds_left || 0,
-    discordLinked: !!profile.discord_linked,
-    xLinked: !!profile.x_linked,
-    telegramJoined: !!profile.telegram_joined,
-    wallet: profile.wallet_address || '',
+    streak: profile.streak ?? profile.streak_days ?? 0,
+    multiplier: profile.multiplier ?? profile.qe_multiplier ?? 1.0,
+    faucetAvailable: profile.faucet_available ?? null,
+    faucetCooldownSeconds: profile.faucet_cooldown_seconds ?? profile.faucet_seconds_left ?? null,
+    discordLinked: profile.discord_linked ?? false,
+    xLinked: profile.x_linked ?? false,
+    telegramJoined: profile.telegram_joined ?? false,
+    wallet: profile.wallet_address ?? profile.wallet ?? '',
     profile,
   };
 }
@@ -88,7 +92,7 @@ async function fetchDashboardSnapshot(bot, { force = false } = {}) {
     ? cachedStatus.profile
     : await bot.withCache('profile', 15000, () => bot.api('GET', '/profile/'), { force });
 
-  if (profile.error && !Object.prototype.hasOwnProperty.call(profile, 'qe_balance')) {
+  if (profile.error && profile.qe == null && profile.qe_balance == null) {
     return {
       status: { error: profile.error, statusCode: profile._status || 0 },
       network: cachedNetwork || await bot.network({ force }),
