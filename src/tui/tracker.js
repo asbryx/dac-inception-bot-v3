@@ -282,6 +282,7 @@ class AccountProgressMap {
     this.width = width;
     this.accountNames = accountNames;
     this.trackers = new Map(); // accountName -> StepTracker
+    this.proxies = new Map(); // accountName -> { label, source, healthy }
     this.currentAccount = null;
     // Pre-seed empty trackers so queued accounts appear immediately
     for (const name of accountNames) {
@@ -294,6 +295,20 @@ class AccountProgressMap {
   }
 
   createTracker(accountName, title) {
+    const existing = this.trackers.get(accountName);
+    if (existing) {
+      // Preserve pre-seeded tracker; transition Queued -> Starting
+      const queued = existing.steps.find((s) => s.label === 'Queued');
+      if (queued) {
+        queued.label = 'Starting...';
+        queued.status = STATUS.RUNNING;
+        queued.startedAt = Date.now();
+      } else {
+        existing.add('Starting...');
+      }
+      existing.title = title;
+      return existing;
+    }
     const tracker = new StepTracker({ title, width: this.width });
     tracker.add('Starting...');
     this.trackers.set(accountName, tracker);
@@ -306,6 +321,10 @@ class AccountProgressMap {
 
   setCurrent(accountName) {
     this.currentAccount = accountName;
+  }
+
+  setProxy(accountName, { label, source, healthy } = {}) {
+    this.proxies.set(accountName, { label: label || 'none', source: source || 'none', healthy: healthy !== false });
   }
 
   render() {
@@ -361,7 +380,15 @@ class AccountProgressMap {
         : sum.pending === sum.total && sum.total > 0 ? color('queued', C.muted)
         : color(`${accPct}%`, C.primary);
 
-      lines.push(`  ${prefix} ${nameCol}  ${barMini}  ${status}`);
+      // Proxy indicator
+      const proxyInfo = this.proxies.get(name);
+      const proxyBadge = proxyInfo
+        ? proxyInfo.healthy
+          ? color(`[${proxyInfo.label}]`, C.success)
+          : color(`[${proxyInfo.label}]`, C.error)
+        : color('[no proxy]', C.muted);
+
+      lines.push(`  ${prefix} ${nameCol}  ${barMini}  ${status}  ${proxyBadge}`);
 
       // Show current running step (only for current account to save space)
       const running = tracker.steps.find((s) => s.status === STATUS.RUNNING);

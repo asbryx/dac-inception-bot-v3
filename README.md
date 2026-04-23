@@ -23,9 +23,10 @@ DAC Inception Bot v3 is a ground-up rebuild of the original DAC bot, designed fo
 | Improvement | Details |
 |---|---|
 | **Modular codebase** | Split into focused modules (`api`, `auth`, `chain`, `domain`, `tui`, etc.) instead of one monolithic script |
+| **Fully independent** | No external legacy dependencies — all logic is self-contained in the repo |
 | **Multi-account first** | Built from the ground up for fleet management with per-account proxy rotation |
 | **Resilient orchestration** | Multi-account runs continue through individual failures and report a summary at the end |
-| **Interactive TUI** | Visual launcher with themed panels, menus, and status dashboards |
+| **Interactive TUI** | Visual launcher with themed panels, toggle menus, and status dashboards |
 | **Strategy profiles** | Choose `safe`, `balanced`, or `aggressive` automation profiles |
 
 ---
@@ -63,7 +64,7 @@ npm start
 - **Multi-account orchestration** — run all configured wallets concurrently with `run-all` (up to 10 parallel)
 - **Campaign & loop modes** — schedule repeating runs at configurable intervals
 - **Strategy mode** — `safe` / `balanced` / `aggressive` profiles that decide which actions to take
-- **Feature toggles** — granular control: enable/disable tasks, badges, faucet, crates, mint scan, burn, stake, mesh, receive per run
+- **Feature toggles** — interactive toggle menu (Space to enable/disable, Enter to confirm) for granular control per run
 - **Fast mode** — strip all human-like delays with `--fast` for maximum speed
 
 ### Chain Actions
@@ -83,6 +84,7 @@ npm start
 - **Account status** — detailed single-account status with optional JSON output
 - **Fleet summary** — compact multi-account dashboard via `status-all`
 - **Live progress dashboard** — real-time account status icons during multi-account runs (✓ done, ✗ failed, ▶ running, ○ queued)
+- **Proxy status per account** — live TUI shows assigned proxy label and health next to each account row
 - **Tracking snapshots** — record and compare account state over time
 - **Faucet loop** — automated faucet claims with configurable duration and interval
 - **Step tracking** — visual progress bars and step-by-step execution reports

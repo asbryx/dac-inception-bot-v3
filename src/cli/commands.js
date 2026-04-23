@@ -301,7 +301,10 @@ async function runCommand(args) {
     const proxyRotation = getSharedProxyRotation(args);
     const contextFactory = makeContextFactory(args, proxyRotation);
     const all = await runStatusAll({ contextFactory, selected: args.accounts || undefined, concurrency: args.concurrency || 1 });
-    const rows = await Promise.all(all.accounts.map(async (account) => {
+    const validAccounts = all.preflight && all.preflight.rows
+      ? all.preflight.rows.filter((row) => row.ok).map((row) => row.accountName)
+      : (all.accounts || []);
+    const rows = await Promise.all(validAccounts.map(async (account) => {
       try {
         const context = await contextFactory(account);
         return {

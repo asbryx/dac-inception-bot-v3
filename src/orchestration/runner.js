@@ -16,7 +16,16 @@ async function runAcrossAccounts(accounts, worker, { onStart = null, onComplete 
       return row;
     }
   };
-  if (concurrency > 1) return mapLimit(accounts, concurrency, wrapped);
+  if (concurrency > 1) {
+    const results = await mapLimit(accounts, concurrency, wrapped);
+    return results.map((r, i) => {
+      if (r && r.__error) {
+        const normalized = toBotError(r.error, { accountName: accounts[i], action });
+        return { account: accounts[i], ok: false, error: formatBotError(normalized) };
+      }
+      return r;
+    });
+  }
   const results = [];
   for (let index = 0; index < accounts.length; index += 1) results.push(await wrapped(accounts[index], index));
   return results;

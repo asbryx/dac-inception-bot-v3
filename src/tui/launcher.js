@@ -40,49 +40,6 @@ function makeContextFactory(args, proxyRotation) {
 
 // ─── Visual progress helpers ────────────────────────────
 
-function formatAccountStatus(name, p) {
-  if (p.ok === true) return `${color('✓', C.success)} ${color(name, C.muted)} ${color('done', C.success)}`;
-  if (p.ok === false) return `${color('✗', C.error)} ${color(name, C.muted)} ${color(p.error || 'failed', C.errorText)}`;
-  if (p.step) return `${color('▶', C.primary)} ${color(name, C.value)} ${color(p.step, C.primary)} ${p.message ? color(`| ${p.message}`, C.muted) : ''}`;
-  return `${color('○', C.muted)} ${color(name, C.muted)} ${color('queued', C.muted)}`;
-}
-
-function renderAutoAllBanner(progressMap, totalAccounts, currentAccount) {
-  const entries = Array.from(progressMap.entries());
-  const doneCount = entries.filter(([, p]) => p.ok === true).length;
-  const failCount = entries.filter(([, p]) => p.ok === false).length;
-  const bar = colorProgressBar(doneCount + failCount, totalAccounts, 28);
-
-  const lines = [
-    `${color(S.diamond, C.primary)} ${color('AUTO ALL', `${ANSI.bold}${C.title}`)}`,
-    ``,
-    `  ${color('Overall:', C.label)} ${bar}  ${color(`${doneCount + failCount}/${totalAccounts}`, C.value)}`,
-    `  ${color('Done:', C.label)}   ${color(String(doneCount), C.success)}  ${color('Fail:', C.label)} ${color(String(failCount), C.error)}`,
-    ``,
-  ];
-
-  const maxVisible = 12;
-  let visible = entries.slice(0, maxVisible);
-  if (entries.length > maxVisible) {
-    visible = entries.slice(0, maxVisible - 1);
-    const remaining = entries.length - visible.length;
-    visible.push([null, { label: `... and ${remaining} more` }]);
-  }
-
-  for (const [name, p] of visible) {
-    if (name === null) {
-      lines.push(`  ${color(p.label, C.muted)}`);
-      continue;
-    }
-    const isCurrent = name === currentAccount;
-    const prefix = isCurrent ? color('›', C.primary) : ' ';
-    lines.push(`  ${prefix} ${formatAccountStatus(name, p)}`);
-  }
-
-  console.clear();
-  process.stdout.write(`${box(`${S.diamond} Automation Progress`, lines, 72)}\n`);
-}
-
 function renderFaucetLoopBanner(progressMap, totalAccounts, currentAccount) {
   const entries = Array.from(progressMap.entries());
   const doneCount = entries.filter(([, p]) => p.ok === true).length;
@@ -301,6 +258,13 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     prepareContext: (accountName, context) => {
       const tracker = progressMap.getTracker(accountName);
       if (tracker) context.bot.tracker = tracker;
+      const proxyLabel = context.proxy?.label || context.bot?.proxy?.label || 'none';
+      const proxySource = context.proxySource || context.bot?.proxySource || 'none';
+      progressMap.setProxy(accountName, {
+        label: proxyLabel,
+        source: proxySource,
+        healthy: true,
+      });
     },
   });
 

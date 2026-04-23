@@ -1,6 +1,5 @@
 const { DACBot } = require('../core/bot');
 const statusDomain = require('./status');
-const { resolveAccountProxy } = require('../addons/proxies');
 
 function createBot(accountName, overrides = {}) {
   return new DACBot({
@@ -18,27 +17,6 @@ function createBot(accountName, overrides = {}) {
 
 function describeProxy(proxy) {
   return proxy ? { url: proxy.url, label: proxy.label } : null;
-}
-
-function resolveProxyKey(accountName, overrides = {}) {
-  const walletAddress = overrides.walletAddress
-    || overrides.accountConfig?.wallet
-    || (overrides.privateKey ? require('../chain/wallet').deriveWalletAddress(overrides.privateKey) : null);
-  return walletAddress || accountName;
-}
-
-function resolveProxyAssignment(accountName, overrides = {}) {
-  const proxyKey = resolveProxyKey(accountName, overrides);
-  const resolved = resolveAccountProxy(proxyKey, {
-    accountConfig: overrides.accountConfig || null,
-    proxy: overrides.proxy ?? null,
-    proxyRotation: overrides.proxyRotation ?? null,
-  });
-  return {
-    proxy: resolved.proxy,
-    proxySource: resolved.source,
-    proxyKey,
-  };
 }
 
 function createStatusService(bot) {
@@ -73,18 +51,7 @@ function createAutomationService(bot) {
 }
 
 async function createAccountContext(accountName, overrides = {}) {
-  const accountConfig = overrides.accountConfig || null;
-  const proxyAssignment = resolveProxyAssignment(accountName, {
-    ...overrides,
-    accountConfig,
-  });
-  const bot = createBot(accountName, {
-    ...overrides,
-    accountConfig,
-    proxy: proxyAssignment.proxy,
-  });
-  bot.proxySource = proxyAssignment.proxySource;
-  bot.proxyKey = proxyAssignment.proxyKey;
+  const bot = createBot(accountName, overrides);
   return {
     accountName: bot.accountName,
     accountConfig: bot.accountConfig,
