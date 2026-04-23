@@ -277,7 +277,7 @@ class LiveTracker {
 // renders a combined live dashboard with per-account state.
 
 class AccountProgressMap {
-  constructor({ title = 'Multi-Account Progress', width = 96, accountNames = [] } = {}) {
+  constructor({ title = 'Multi-Account Progress', width = 96, accountNames = [], proxyRotation = null } = {}) {
     this.title = title;
     this.width = width;
     this.accountNames = accountNames;
@@ -291,6 +291,13 @@ class AccountProgressMap {
         const t = new StepTracker({ title: `Automation — ${name}`, width: this.width });
         t.add('Queued');
         this.trackers.set(name, t);
+      }
+      // Pre-assign proxies so queued accounts show proxy info immediately
+      if (proxyRotation?.enabled) {
+        const proxy = proxyRotation.assign(name);
+        if (proxy) {
+          this.setProxy(name, { label: proxy.label, source: 'rotation', healthy: true });
+        }
       }
     }
   }
@@ -385,14 +392,8 @@ class AccountProgressMap {
       '',
     );
 
-    // Determine how many we can show
-    const maxVisible = Math.max(10, Math.min(this.accountNames.length, 28));
-    let visible = entries.slice(0, maxVisible);
-    if (entries.length > maxVisible) {
-      visible = entries.slice(0, maxVisible - 1);
-      const remaining = entries.length - visible.length;
-      visible.push([null, { label: `... and ${remaining} more accounts` }]);
-    }
+    // Show every single account — no truncation
+    const visible = entries;
 
     for (const [name, tracker] of visible) {
       if (name === null) {

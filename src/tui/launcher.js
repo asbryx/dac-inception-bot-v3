@@ -53,13 +53,7 @@ function renderFaucetLoopBanner(progressMap, totalAccounts, currentAccount) {
     ``,
   ];
 
-  const maxVisible = 12;
-  let visible = entries.slice(0, maxVisible);
-  if (entries.length > maxVisible) {
-    visible = entries.slice(0, maxVisible - 1);
-    const remaining = entries.length - visible.length;
-    visible.push([null, { label: `... and ${remaining} more` }]);
-  }
+  const visible = entries;
 
   for (const [name, p] of visible) {
     if (name === null) {
@@ -202,9 +196,9 @@ async function runSingleAccountAutomation(context, options, { useVisual = false,
 
 // ─── Live Multi-Account Automation ──────────────────────
 
-async function runMultiAccountAutomation({ names, contextFactory, options, args, useVisual, quiet }) {
+async function runMultiAccountAutomation({ names, contextFactory, options, args, useVisual, quiet, proxyRotation = null }) {
   const totalAccounts = names.length;
-  const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96, accountNames: names });
+  const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96, accountNames: names, proxyRotation });
 
   // Throttle visual renders so fast mode doesn't spend all its time clearing the terminal
   let renderPending = false;
@@ -284,13 +278,15 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
       const tracker = progressMap.getTracker(accountName);
       if (tracker) context.bot.tracker = tracker;
       const proxy = context.proxy || context.bot?.proxy || null;
-      const proxyLabel = proxy?.label || 'none';
-      const proxySource = context.proxySource || context.bot?.proxySource || 'none';
+      if (!proxy) return; // no proxy assigned — keep [no proxy] gray badge
+
+      const proxyLabel = proxy.label || 'unknown';
+      const proxySource = context.proxySource || context.bot?.proxySource || 'rotation';
 
       // Real health check against proxy rotation state
       let healthy = true;
       const rotation = context.bot?.proxyRotation;
-      if (rotation && proxy && rotation.healthState) {
+      if (rotation && rotation.healthState) {
         const state = rotation.healthState.get(proxy.url);
         if (state?.lastFailedAt) {
           const cooldownMs = rotation.settings?.failover?.cooldownMs || 300000;
@@ -411,7 +407,7 @@ async function runInteractiveLauncher(context, args = {}) {
         if (!go) { console.log(color('  Cancelled.', C.muted)); await prompt('\nPress Enter to continue...'); continue; }
 
         const useVisual = process.stdout.isTTY && !args.quiet;
-        await runMultiAccountAutomation({ names, contextFactory, options, args, useVisual, quiet: args.quiet });
+        await runMultiAccountAutomation({ names, contextFactory, options, args, useVisual, quiet: args.quiet, proxyRotation });
         await prompt('\nPress Enter to continue...');
       }
 
