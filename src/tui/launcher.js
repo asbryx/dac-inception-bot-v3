@@ -38,32 +38,91 @@ function makeContextFactory(args, proxyRotation) {
 
 // ─── Visual progress helpers ────────────────────────────
 
-function renderAutoAllBanner({ account, index, total, step, message }) {
-  const pct = Math.round(((index + 1) / Math.max(total, 1)) * 100);
-  const bar = colorProgressBar(index + 1, total, 24);
+function formatAccountStatus(name, p) {
+  if (p.ok === true) return `${color('✓', C.success)} ${color(name, C.muted)} ${color('done', C.success)}`;
+  if (p.ok === false) return `${color('✗', C.error)} ${color(name, C.muted)} ${color(p.error || 'failed', C.errorText)}`;
+  if (p.step) return `${color('▶', C.primary)} ${color(name, C.value)} ${color(p.step, C.primary)} ${p.message ? color(`| ${p.message}`, C.muted) : ''}`;
+  return `${color('○', C.muted)} ${color(name, C.muted)} ${color('queued', C.muted)}`;
+}
+
+function renderAutoAllBanner(progressMap, totalAccounts, currentAccount) {
+  const entries = Array.from(progressMap.entries());
+  const doneCount = entries.filter(([, p]) => p.ok === true).length;
+  const failCount = entries.filter(([, p]) => p.ok === false).length;
+  const bar = colorProgressBar(doneCount + failCount, totalAccounts, 28);
+
   const lines = [
     `${color(S.diamond, C.primary)} ${color('AUTO ALL', `${ANSI.bold}${C.title}`)}`,
     ``,
-    `  ${color('Account:', C.label)} ${color(account || '—', C.value)}`,
-    `  ${color('Progress:', C.label)} ${bar}`,
-    `  ${color('Step:', C.label)}     ${color(step || 'starting', C.primary)}`,
+    `  ${color('Overall:', C.label)} ${bar}  ${color(`${doneCount + failCount}/${totalAccounts}`, C.value)}`,
+    `  ${color('Done:', C.label)}   ${color(String(doneCount), C.success)}  ${color('Fail:', C.label)} ${color(String(failCount), C.error)}`,
+    ``,
   ];
-  if (message) lines.push(`  ${color('Detail:', C.label)}  ${color(message, C.muted)}`);
+
+  // Show up to 12 accounts in the box; truncate with "..." if more
+  const maxVisible = 12;
+  let visible = entries.slice(0, maxVisible);
+  if (entries.length > maxVisible) {
+    visible = entries.slice(0, maxVisible - 1);
+    const remaining = entries.length - visible.length;
+    visible.push([null, { label: `... and ${remaining} more` }]);
+  }
+
+  for (const [name, p] of visible) {
+    if (name === null) {
+      lines.push(`  ${color(p.label, C.muted)}`);
+      continue;
+    }
+    const isCurrent = name === currentAccount;
+    const prefix = isCurrent ? color('›', C.primary) : ' ';
+    lines.push(`  ${prefix} ${formatAccountStatus(name, p)}`);
+  }
+
   console.clear();
-  process.stdout.write(`${box(`${S.diamond} Automation Progress`, lines, 56)}\n`);
+  process.stdout.write(`${box(`${S.diamond} Automation Progress`, lines, 72)}\n`);
 }
 
-function renderFaucetLoopBanner({ account, cycle, status, detail }) {
+function renderFaucetLoopBanner(progressMap, totalAccounts, currentAccount) {
+  const entries = Array.from(progressMap.entries());
+  const doneCount = entries.filter(([, p]) => p.ok === true).length;
+  const failCount = entries.filter(([, p]) => p.ok === false).length;
+
   const lines = [
     `${color(S.diamond, C.primary)} ${color('FAUCET LOOP ALL', `${ANSI.bold}${C.title}`)}`,
     ``,
-    `  ${color('Account:', C.label)} ${color(account || '—', C.value)}`,
-    `  ${color('Cycle:', C.label)}   ${color(String(cycle || 0), C.primary)}`,
-    `  ${color('Status:', C.label)}  ${color(status || '—', C.success)}`,
+    `  ${color('Overall:', C.label)} ${color(`${doneCount + failCount}/${totalAccounts}`, C.value)}`,
+    `  ${color('Done:', C.label)}   ${color(String(doneCount), C.success)}  ${color('Fail:', C.label)} ${color(String(failCount), C.error)}`,
+    ``,
   ];
-  if (detail) lines.push(`  ${color('Detail:', C.label)}  ${color(detail, C.muted)}`);
+
+  const maxVisible = 12;
+  let visible = entries.slice(0, maxVisible);
+  if (entries.length > maxVisible) {
+    visible = entries.slice(0, maxVisible - 1);
+    const remaining = entries.length - visible.length;
+    visible.push([null, { label: `... and ${remaining} more` }]);
+  }
+
+  for (const [name, p] of visible) {
+    if (name === null) {
+      lines.push(`  ${color(p.label, C.muted)}`);
+      continue;
+    }
+    const isCurrent = name === currentAccount;
+    const prefix = isCurrent ? color('›', C.primary) : ' ';
+    if (p.ok === true) {
+      lines.push(`  ${prefix} ${color('✓', C.success)} ${color(name, C.muted)} ${color('done', C.success)}`);
+    } else if (p.ok === false) {
+      lines.push(`  ${prefix} ${color('✗', C.error)} ${color(name, C.muted)} ${color(p.error || 'failed', C.errorText)}`);
+    } else if (p.cycle) {
+      lines.push(`  ${prefix} ${color('◐', C.primary)} ${color(name, C.value)} cycle ${color(String(p.cycle), C.primary)} ${color(p.status || '', C.muted)}`);
+    } else {
+      lines.push(`  ${prefix} ${color('○', C.muted)} ${color(name, C.muted)} ${color('queued', C.muted)}`);
+    }
+  }
+
   console.clear();
-  process.stdout.write(`${box(`${S.diamond} Faucet Loop`, lines, 56)}\n`);
+  process.stdout.write(`${box(`${S.diamond} Faucet Loop`, lines, 72)}\n`);
 }
 
 function renderAccountRow({ account, index, total, ok, error, step, message }) {
@@ -256,6 +315,7 @@ async function runInteractiveLauncher(context, args = {}) {
 
         const useVisual = process.stdout.isTTY && !args.quiet;
         const progressMap = new Map();
+        const totalAccounts = names.length;
 
         const result = await runAutomationAll({
           contextFactory,
@@ -264,7 +324,7 @@ async function runInteractiveLauncher(context, args = {}) {
           onStart: ({ account, index, total }) => {
             progressMap.set(account, { index, total, step: 'starting', message: '' });
             if (useVisual) {
-              renderAutoAllBanner({ account, index, total, step: 'starting', message: 'initializing' });
+              renderAutoAllBanner(progressMap, totalAccounts, account);
             } else if (!args.quiet) {
               console.log(renderAccountRow({ account, index, total, step: 'starting', message: '' }));
             }
@@ -272,7 +332,7 @@ async function runInteractiveLauncher(context, args = {}) {
           onComplete: ({ account, index, total, ok, error }) => {
             progressMap.set(account, { index, total, ok, error });
             if (useVisual) {
-              renderAutoAllBanner({ account, index, total, step: ok ? 'complete' : 'failed', message: error || 'done' });
+              renderAutoAllBanner(progressMap, totalAccounts, account);
             } else if (!args.quiet) {
               console.log(renderAccountRow({ account, index, total, ok, error }));
             }
@@ -281,7 +341,7 @@ async function runInteractiveLauncher(context, args = {}) {
             const p = progressMap.get(account) || { index: 0, total: 1 };
             progressMap.set(account, { ...p, step, message });
             if (useVisual) {
-              renderAutoAllBanner({ account, index: p.index, total: p.total, step, message });
+              renderAutoAllBanner(progressMap, totalAccounts, account);
             } else if (!args.quiet && step && message) {
               console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(step, C.primary)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
             }
@@ -305,13 +365,19 @@ async function runInteractiveLauncher(context, args = {}) {
         const durationHours = await promptNumber((q) => prompt(q), 'Duration hours', 24);
         const intervalMinutes = await promptNumber((q) => prompt(q), 'Interval minutes', 60);
         const useVisual = process.stdout.isTTY && !args.quiet;
+        const progressMap = new Map();
+        const totalAccounts = names.length;
 
         const result = await runFaucetLoopAll({
           contextFactory,
           durationHours,
           intervalMinutes,
           onProgress: useVisual
-            ? ({ account, cycle, status, detail }) => renderFaucetLoopBanner({ account, cycle, status, detail })
+            ? ({ account, cycle, status, detail }) => {
+                const p = progressMap.get(account) || {};
+                progressMap.set(account, { ...p, cycle, status, detail });
+                renderFaucetLoopBanner(progressMap, totalAccounts, account);
+              }
             : ({ account, cycle, status, detail }) => {
                 if (!args.quiet) console.log(`  ${color(S.dot, C.muted)} ${color(account, C.label)} cycle ${cycle} ${color(status, C.primary)} ${detail ? color(`| ${detail}`, C.muted) : ''}`);
               },
