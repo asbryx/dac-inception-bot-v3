@@ -121,8 +121,98 @@ async function promptConfirm(promptFn, message) {
   return answer.toLowerCase() !== 'n';
 }
 
+// ─── promptSingleSelect ─────────────────────────────────
+// Interactive single-select menu for TTY. Falls back to
+// numeric prompt for non-TTY.
+//
+// items: [{ label, value }]
+// returns: selected value string, or null on cancel
+
+function promptSingleSelect(title, items) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return promptSingleSelectFallback(title, items);
+  }
+  return promptSingleSelectTTY(title, items);
+}
+
+async function promptSingleSelectFallback(title, items) {
+  console.log(`\n${color(String(title).toUpperCase(), `${ANSI.bold}${C.title}`)}`);
+  items.forEach((item, idx) => {
+    console.log(`  ${String(idx + 1).padStart(2)}. ${item.label}`);
+  });
+  const answer = await require('../cli/prompts').prompt('Select: ');
+  if (!answer) return null;
+  const num = Number(answer);
+  if (Number.isInteger(num) && num >= 1 && num <= items.length) return items[num - 1].value;
+  const direct = items.find((item) => item.value === answer);
+  return direct ? direct.value : null;
+}
+
+function promptSingleSelectTTY(title, items) {
+  let index = 0;
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  readline.emitKeypressEvents(process.stdin);
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+  const width = Math.min(60, terminalWidth() - 4);
+
+  function render() {
+    const lines = items.map((item, idx) => {
+      const active = idx === index;
+      const pointer = active ? color('›', C.primary) : color('·', C.muted);
+      const label = active ? color(item.label, C.value) : color(item.label, C.label);
+      return ` ${pointer} ${label}`;
+    });
+    const header = [
+      color(String(title).toUpperCase(), `${ANSI.bold}${C.title}`),
+      color('↑↓ Move  Enter select  q cancel', C.muted),
+    ];
+    const content = box(`${S.diamond} Select`, [...header, '', ...lines], width, { tone: C.border, style: 'rounded' });
+    console.clear();
+    process.stdout.write(`${content}\n`);
+  }
+
+  return new Promise((resolve) => {
+    render();
+
+    function cleanup() {
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      rl.close();
+      process.stdin.removeListener('keypress', onKeypress);
+    }
+
+    function onKeypress(_, key) {
+      if (!key) return;
+      if (key.name === 'q' || key.name === 'escape' || (key.ctrl && key.name === 'c')) {
+        cleanup();
+        resolve(null);
+        return;
+      }
+      if (key.name === 'up') {
+        index = (index - 1 + items.length) % items.length;
+        render();
+        return;
+      }
+      if (key.name === 'down') {
+        index = (index + 1) % items.length;
+        render();
+        return;
+      }
+      if (key.name === 'return') {
+        cleanup();
+        resolve(items[index].value);
+        return;
+      }
+    }
+
+    process.stdin.on('keypress', onKeypress);
+  });
+}
+
 module.exports = {
   promptMultiToggle,
   promptNumber,
   promptConfirm,
+  promptSingleSelect,
 };

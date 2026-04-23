@@ -1,30 +1,21 @@
 const { color, ANSI, C, theme } = require('./theme');
 const { box } = require('./renderer');
+const { promptSingleSelect } = require('./toggle');
 
 const S = theme.symbols;
 
 async function chooseLauncherMode(promptFn) {
-  const modes = [
-    { key: 'auto',           label: 'Guided automation on current account' },
-    { key: 'auto-all',       label: 'One-click automation for all accounts' },
-    { key: 'manual',         label: 'One task group at a time' },
-    { key: 'summary',        label: 'All-accounts dashboard' },
-    { key: 'faucet-loop',    label: 'Faucet loop — single account 24h mode' },
-    { key: 'faucet-loop-all',label: 'Faucet loop all — multi-account 24h mode' },
-    { key: 'account',        label: 'Switch active account' },
-    { key: 'advanced',       label: 'Mint / burn / stake / tracking' },
-    { key: 'exit',           label: 'Quit the launcher' },
-  ];
-
-  const lines = ['', ...modes.map((m) =>
-    `  ${color(S.tri, C.primary)} ${color(m.key.padEnd(16), C.value)}  ${color(m.label, C.label)}`
-  ), ''];
-
-  if (process.stdout.isTTY) {
-    process.stdout.write(`\n${box(`${S.diamond} Select Mode`, lines, 68)}\n\n`);
-  }
-
-  return promptFn(`  ${color(S.tri, C.primary)} ${color('Mode:', C.value)} `);
+  return promptSingleSelect('Select Mode', [
+    { label: 'Auto               — Guided automation on current account', value: 'auto' },
+    { label: 'Auto All           — One-click automation for all accounts', value: 'auto-all' },
+    { label: 'Manual             — One task group at a time', value: 'manual' },
+    { label: 'Summary            — All-accounts dashboard', value: 'summary' },
+    { label: 'Faucet Loop        — Single account 24h mode', value: 'faucet-loop' },
+    { label: 'Faucet Loop All    — Multi-account 24h mode', value: 'faucet-loop-all' },
+    { label: 'Account            — Switch active account', value: 'account' },
+    { label: 'Advanced           — Mint / burn / stake / tracking', value: 'advanced' },
+    { label: 'Exit               — Quit the launcher', value: 'exit' },
+  ]);
 }
 
 async function chooseProfile(promptFn) {
