@@ -59,7 +59,7 @@ async function walletLogin(bot, { force = false, baseUrl }) {
       throw new Error(bootstrapPayload.error || `Wallet auth bootstrap failed (${bootstrapResponse.status})`);
     }
 
-    const finalBootstrapCookies = mergeCookieStrings(bootstrapCookies, bot.session?.cookies || '');
+    const finalBootstrapCookies = mergeCookieStrings(bot.session?.cookies || '', cookieString);
     const finalBootstrapCsrf = parseCookieString(finalBootstrapCookies).csrftoken || bot.session?.csrf || bootstrapCsrf;
     bot.setSession(finalBootstrapCookies, finalBootstrapCsrf, true);
     return bootstrapPayload;
@@ -86,9 +86,9 @@ async function walletLogin(bot, { force = false, baseUrl }) {
     throw new Error(payload.error || `Wallet auth failed (${response.status})`);
   }
 
-  const mergedCookies = mergeCookieStrings(cookieString, bot.session.cookies, bot.accountConfig.cookies || '');
+  const mergedCookies = mergeCookieStrings(bot.session.cookies, cookieString, bot.accountConfig.cookies || '');
   const mergedParsed = parseCookieString(mergedCookies);
-  const finalCsrf = bot.session.csrf || mergedParsed.csrftoken || csrf;
+  const finalCsrf = mergedParsed.csrftoken || bot.session.csrf || csrf;
   bot.setSession(mergedCookies, finalCsrf, true);
   return payload;
 }
