@@ -5,6 +5,7 @@ const { sleep } = require('../core/bot');
 
 async function runFaucetLoop(bot, { durationHours = 24, intervalMinutes = 60 } = {}) {
   const startedAt = Date.now();
+  const effectiveInterval = bot.fastMode ? Math.min(intervalMinutes, 1) : Math.max(intervalMinutes, 1);
   const until = startedAt + durationHours * 60 * 60 * 1000;
   const runs = [];
   let attempt = 0;
@@ -19,20 +20,20 @@ async function runFaucetLoop(bot, { durationHours = 24, intervalMinutes = 60 } =
       bot.log(`  Faucet loop error: ${error.message}`);
     }
     if (Date.now() >= until) break;
-    bot.log(`  Faucet loop sleeping ${intervalMinutes}m`);
-    await sleep(Math.max(intervalMinutes, 1) * 60 * 1000);
+    bot.log(`  Faucet loop sleeping ${effectiveInterval}m`);
+    await sleep(effectiveInterval * 60 * 1000);
   }
   return {
     account: bot.accountName || 'default',
     durationHours,
-    intervalMinutes,
+    intervalMinutes: effectiveInterval,
     startedAt: new Date(startedAt).toISOString(),
     endedAt: new Date().toISOString(),
     runs,
   };
 }
 
-async function runFaucetLoopAll({ contextFactory, selected = null, durationHours = 24, intervalMinutes = 60, concurrency = 1, onStart = null, onComplete = null, onProgress = null } = {}) {
+async function runFaucetLoopAll({ contextFactory, selected = null, durationHours = 24, intervalMinutes = 60, concurrency = 1, fastMode = false, onStart = null, onComplete = null, onProgress = null } = {}) {
   const accounts = selected && selected.length ? selected : accountNames();
   const preflight = validateSelectedAccounts(accounts);
   const validAccounts = preflight.rows.filter((row) => row.ok).map((row) => row.accountName);
@@ -43,6 +44,7 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
   }));
 
   const startedAt = Date.now();
+  const effectiveInterval = fastMode ? Math.min(intervalMinutes, 1) : Math.max(intervalMinutes, 1);
   const until = startedAt + durationHours * 60 * 60 * 1000;
   const perAccount = [];
   for (const accountName of validAccounts) {
@@ -82,14 +84,14 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
     }
 
     if (Date.now() >= until) break;
-    await sleep(Math.max(intervalMinutes, 1) * 60 * 1000);
+    await sleep(effectiveInterval * 60 * 1000);
   }
 
   return {
     task: 'faucet-loop-all',
     accounts,
     durationHours,
-    intervalMinutes,
+    intervalMinutes: effectiveInterval,
     startedAt: new Date(startedAt).toISOString(),
     endedAt: new Date().toISOString(),
     preflight,
@@ -101,7 +103,7 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
         result: {
           account: entry.account,
           durationHours,
-          intervalMinutes,
+          intervalMinutes: effectiveInterval,
           startedAt: new Date(startedAt).toISOString(),
           endedAt: new Date().toISOString(),
           runs: entry.runs,

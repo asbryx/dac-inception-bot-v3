@@ -548,6 +548,7 @@ async function runCommand(args) {
       durationHours: args.durationHours || 24,
       intervalMinutes: args.interval || 60,
       concurrency: args.concurrency || 1,
+      fastMode: !!args.fast,
       onProgress: liveProxyDashboard ? ({ account, status, detail }) => setProgress(account, status, detail) : null,
     });
     printStructured(args, result, (payload) => [
@@ -581,14 +582,15 @@ async function runCommand(args) {
 
   if (command === 'loop') {
     const bot = createDirectBot(args);
+    const loopInterval = args.fast ? 1 : args.interval;
     while (true) {
       try {
         await bot.run(buildRunOptions(args));
-        console.log(`  ${color(S.circle, C.muted)} Sleeping ${color(`${args.interval}m`, C.label)}...`);
-        await new Promise((resolve) => setTimeout(resolve, args.interval * 60 * 1000));
+        console.log(`  ${color(S.circle, C.muted)} Sleeping ${color(`${loopInterval}m`, C.label)}...`);
+        await new Promise((resolve) => setTimeout(resolve, loopInterval * 60 * 1000));
       } catch (error) {
         console.error(`  ${color(S.fail, C.error)} ${color(error.message, C.errorText)}`);
-        await new Promise((resolve) => setTimeout(resolve, 60 * 1000));
+        await new Promise((resolve) => setTimeout(resolve, args.fast ? 5000 : 60 * 1000));
       }
     }
     return;

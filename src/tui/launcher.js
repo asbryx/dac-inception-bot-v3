@@ -468,6 +468,7 @@ async function runInteractiveLauncher(context, args = {}) {
           contextFactory,
           durationHours,
           intervalMinutes,
+          fastMode: !!args.fast,
           onProgress: useVisual
             ? ({ account, cycle, status, detail }) => {
                 const p = progressMap.get(account) || {};
