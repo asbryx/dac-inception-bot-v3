@@ -4,6 +4,8 @@ const readline = require('readline');
 
 const S = theme.symbols;
 
+const { prompt } = require('../cli/prompts');
+
 // ─── promptMultiToggle ──────────────────────────────────
 // Interactive checkbox menu for TTY. Falls back to numeric
 // prompt for non-TTY (e.g. piping, CI).
@@ -26,7 +28,7 @@ async function promptMultiToggleFallback(title, items) {
     const mark = item.checked ? color('[x]', C.success) : color('[ ]', C.muted);
     console.log(`  ${String(idx + 1).padStart(2)}. ${mark} ${item.label}`);
   });
-  const answer = await require('../cli/prompts').prompt('Toggle items: ');
+  const answer = await prompt('Toggle items: ');
   if (!answer) return state.filter((item) => item.checked).map((item) => item.value);
   const toggledIndexes = Array.from(new Set(
     answer.split(',').map((part) => Number(part.trim())).filter((n) => Number.isInteger(n) && n >= 1 && n <= items.length),
@@ -140,7 +142,7 @@ async function promptSingleSelectFallback(title, items) {
   items.forEach((item, idx) => {
     console.log(`  ${String(idx + 1).padStart(2)}. ${item.label}`);
   });
-  const answer = await require('../cli/prompts').prompt('Select: ');
+  const answer = await prompt('Select: ');
   if (!answer) return null;
   const num = Number(answer);
   if (Number.isInteger(num) && num >= 1 && num <= items.length) return items[num - 1].value;

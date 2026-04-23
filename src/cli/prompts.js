@@ -11,8 +11,8 @@ function prompt(question, { silent = false } = {}) {
       let value = '';
 
       const cleanup = () => {
-        stdin.setRawMode(false);
         stdin.removeListener('data', onData);
+        stdin.setRawMode(false);
         rl.close();
       };
 

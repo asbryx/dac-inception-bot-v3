@@ -25,14 +25,17 @@ async function chooseProfile(promptFn) {
     { key: 'aggressive', label: 'Low reserves, maximize progression' },
   ];
 
+  if (process.stdout.isTTY) {
+    return promptSingleSelect('Strategy Profile', profiles.map((p) => ({
+      label: `${color(p.key.padEnd(12), C.value)}  ${color(p.label, C.label)}`,
+      value: p.key,
+    })));
+  }
+
   const lines = ['', ...profiles.map((p) =>
     `  ${color(S.tri, C.primary)} ${color(p.key.padEnd(12), C.value)}  ${color(p.label, C.label)}`
   ), ''];
-
-  if (process.stdout.isTTY) {
-    process.stdout.write(`\n${box(`${S.star} Strategy Profile`, lines, 56)}\n\n`);
-  }
-
+  process.stdout.write(`\n${box(`${S.star} Strategy Profile`, lines, 56)}\n\n`);
   return promptFn(`  ${color(S.tri, C.primary)} ${color('Profile:', C.value)} `);
 }
 
@@ -42,14 +45,17 @@ async function chooseAutoAllMode(promptFn) {
     { key: 'custom',     label: 'Custom — toggle every option' },
   ];
 
+  if (process.stdout.isTTY) {
+    return promptSingleSelect('Auto All Preset', modes.map((m) => ({
+      label: `${color(m.key.padEnd(12), C.value)}  ${color(m.label, C.label)}`,
+      value: m.key,
+    })));
+  }
+
   const lines = ['', ...modes.map((m) =>
     `  ${color(S.tri, C.primary)} ${color(m.key.padEnd(12), C.value)}  ${color(m.label, C.label)}`
   ), ''];
-
-  if (process.stdout.isTTY) {
-    process.stdout.write(`\n${box(`${S.diamond} Auto All Preset`, lines, 56)}\n\n`);
-  }
-
+  process.stdout.write(`\n${box(`${S.diamond} Auto All Preset`, lines, 56)}\n\n`);
   return promptFn(`  ${color(S.tri, C.primary)} ${color('Preset:', C.value)} `);
 }
 

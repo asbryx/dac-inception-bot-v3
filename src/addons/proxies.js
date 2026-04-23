@@ -220,9 +220,12 @@ function createProxyRotation(entries = [], options = {}) {
       assigned: rows.filter((row) => row.status === 'assigned').length,
       cooldown: rows.filter((row) => row.status === 'cooldown').length,
       unused: rows.filter((row) => row.status === 'unused').length,
-      assignments: Array.from(assignments.values()),
-      failovers: [...failoverEvents],
-      rows,
+    assignments: Array.from(assignments.values()),
+    failovers: [...failoverEvents],
+    rows,
+    // Expose read-only snapshots instead of mutable Maps
+    _healthState: Object.fromEntries(healthState),
+    _assignmentIndex: Object.fromEntries(assignmentIndex),
     };
   }
 

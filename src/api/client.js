@@ -72,7 +72,9 @@ async function failoverProxy(bot, failedProxy, error) {
 }
 
 async function fetchWithSession(bot, url, { method = 'GET', headers = {}, body, sessionOverride, signal } = {}) {
-  if (typeof bot.rotateUserAgent === 'function') bot.rotateUserAgent();
+  if (typeof bot.rotateUserAgent === 'function' && bot.humanMode && bot.humanFeatures?.rotateUserAgent !== false) {
+    bot.rotateUserAgent();
+  }
   const cookieHeader = sessionOverride?.cookieHeader || bot.session?.cookieHeader || '';
   const csrf = sessionOverride?.csrf || bot.session?.csrf || '';
   const requestHeaders = {

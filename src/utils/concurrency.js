@@ -6,7 +6,11 @@ async function mapLimit(items, limit, worker) {
       const index = nextIndex;
       nextIndex += 1;
       if (index >= items.length) return;
-      results[index] = await worker(items[index], index);
+      try {
+        results[index] = await worker(items[index], index);
+      } catch (error) {
+        results[index] = { __error: true, error };
+      }
     }
   });
   await Promise.all(runners);

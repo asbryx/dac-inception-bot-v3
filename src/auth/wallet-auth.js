@@ -2,6 +2,9 @@ const {
   parseCookieString,
   mergeCookieStrings,
   buildCookieHeader,
+  extractSetCookieParts,
+  parseSetCookieHeader,
+  normalizeCookieDomain,
 } = require('./session');
 
 async function walletLogin(bot, { force = false, baseUrl }) {
@@ -13,6 +16,24 @@ async function walletLogin(bot, { force = false, baseUrl }) {
   let csrf = force ? null : (bot.session?.csrf || knownCookies.csrftoken || bot.accountConfig.csrf || null);
   let cookieString = force ? '' : mergeCookieStrings(bot.session?.cookies || '', bot.accountConfig.cookies || '');
   let cookieHeader = buildCookieHeader(cookieString);
+
+  function applyResponseCookies(response) {
+    const setCookieHeaders = extractSetCookieParts(response.headers);
+    if (!setCookieHeaders.length) return;
+    const newCookies = [];
+    for (const header of setCookieHeaders) {
+      const parsed = parseSetCookieHeader(header);
+      if (!parsed) continue;
+      const domain = normalizeCookieDomain(parsed.attrs.domain || new URL(baseUrl).hostname);
+      if (domain !== 'inception.dachain.io') continue;
+      newCookies.push(`${parsed.name}=${parsed.value}`);
+    }
+    if (!newCookies.length) return;
+    cookieString = mergeCookieStrings(cookieString, newCookies.join('; '));
+    cookieHeader = buildCookieHeader(cookieString);
+    const parsedCsrf = parseCookieString(cookieString).csrftoken;
+    if (parsedCsrf) csrf = parsedCsrf;
+  }
 
   if (!csrf) {
     const bootstrapCsrf = '00000000000000000000000000000000';
@@ -32,6 +53,7 @@ async function walletLogin(bot, { force = false, baseUrl }) {
       ? await bootstrapResponse.json()
       : { error: `Non-JSON response (${bootstrapResponse.status})`, body: (await bootstrapResponse.text()).slice(0, 300) };
     bootstrapPayload._status = bootstrapResponse.status;
+    applyResponseCookies(bootstrapResponse);
 
     if (!bootstrapResponse.ok || !bootstrapPayload.success) {
       throw new Error(bootstrapPayload.error || `Wallet auth bootstrap failed (${bootstrapResponse.status})`);
@@ -58,6 +80,7 @@ async function walletLogin(bot, { force = false, baseUrl }) {
     ? await response.json()
     : { error: `Non-JSON response (${response.status})`, body: (await response.text()).slice(0, 300) };
   payload._status = response.status;
+  applyResponseCookies(response);
 
   if (!response.ok || !payload.success) {
     throw new Error(payload.error || `Wallet auth failed (${response.status})`);

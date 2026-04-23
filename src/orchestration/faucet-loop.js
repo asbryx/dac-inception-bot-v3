@@ -20,7 +20,7 @@ async function runFaucetLoop(bot, { durationHours = 24, intervalMinutes = 60 } =
     }
     if (Date.now() >= until) break;
     bot.log(`  Faucet loop sleeping ${intervalMinutes}m`);
-    await sleep(intervalMinutes * 60 * 1000);
+    await sleep(Math.max(intervalMinutes, 1) * 60 * 1000);
   }
   return {
     account: bot.accountName || 'default',
@@ -77,7 +77,7 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
     }
 
     if (Date.now() >= until) break;
-    await sleep(intervalMinutes * 60 * 1000);
+    await sleep(Math.max(intervalMinutes, 1) * 60 * 1000);
   }
 
   return {

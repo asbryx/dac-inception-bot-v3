@@ -101,7 +101,7 @@ async function fetchDashboardSnapshot(bot, { force = false } = {}) {
     cachedNetwork || bot.network({ force }),
   ]);
 
-  const status = (!force && cachedStatus && cachedCatalog === catalog)
+  const status = (!force && cachedStatus && cachedCatalog)
     ? cachedStatus
     : buildStatusFromProfile(profile, catalog, { badgeTotalFromCatalog: bot.badgeTotalFromCatalog });
 
