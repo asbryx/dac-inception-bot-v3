@@ -246,8 +246,8 @@ async function runSingleAccountAutomation(context, options, { useVisual = false,
 // ─── Live Multi-Account Automation ──────────────────────
 
 async function runMultiAccountAutomation({ names, contextFactory, options, args, useVisual, quiet }) {
-  const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96 });
   const totalAccounts = names.length;
+  const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96, accountNames: names });
 
   const result = await runAutomationAll({
     contextFactory,

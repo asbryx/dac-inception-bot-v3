@@ -277,11 +277,18 @@ class LiveTracker {
 // renders a combined live dashboard.
 
 class AccountProgressMap {
-  constructor({ title = 'Multi-Account Progress', width = 96 } = {}) {
+  constructor({ title = 'Multi-Account Progress', width = 96, accountNames = [] } = {}) {
     this.title = title;
     this.width = width;
+    this.accountNames = accountNames;
     this.trackers = new Map(); // accountName -> StepTracker
     this.currentAccount = null;
+    // Pre-seed empty trackers so queued accounts appear immediately
+    for (const name of accountNames) {
+      if (!this.trackers.has(name)) {
+        this.trackers.set(name, new StepTracker({ title: `Automation — ${name}`, width: this.width }));
+      }
+    }
   }
 
   createTracker(accountName, title) {
@@ -305,34 +312,61 @@ class AccountProgressMap {
 
     const entries = Array.from(this.trackers.entries());
     const doneCount = entries.filter(([, t]) => t.isComplete()).length;
-    const total = entries.length;
+    const errCount = entries.filter(([, t]) => {
+      const s = t.summary();
+      return s.errors > 0;
+    }).length;
+    const total = this.accountNames.length || entries.length;
+    const runningCount = entries.filter(([, t]) => {
+      const s = t.summary();
+      return s.running > 0;
+    }).length;
+    const queuedCount = total - doneCount - runningCount;
 
+    // Header stats
+    const pct = total ? Math.round((doneCount / total) * 100) : 0;
+    const bar = this._miniBar(pct, 18);
     lines.push(
-      `  ${color('Accounts:', C.label)} ${color(`${doneCount}/${total}`, C.primary)}`,
+      `  ${color('Accounts:', C.label)} ${color(`${doneCount}/${total}`, C.primary)}  ${bar}  ${color(`${pct}%`, C.primary)}`,
+      `  ${color('Done:', C.label)} ${color(String(doneCount), C.success)}  ${color('Run:', C.label)} ${color(String(runningCount), C.primary)}  ${color('Fail:', C.label)} ${color(String(errCount), C.error)}  ${color('Queue:', C.label)} ${color(String(queuedCount), C.muted)}`,
       '',
     );
 
-    for (const [name, tracker] of entries) {
+    // Determine how many we can show (reserve ~8 lines for header + footer)
+    const maxVisible = Math.max(12, Math.min(this.accountNames.length, 30));
+    let visible = entries.slice(0, maxVisible);
+    if (entries.length > maxVisible) {
+      visible = entries.slice(0, maxVisible - 1);
+      const remaining = entries.length - visible.length;
+      visible.push([null, { label: `... and ${remaining} more accounts` }]);
+    }
+
+    for (const [name, tracker] of visible) {
+      if (name === null) {
+        lines.push(`  ${color(tracker.label, C.muted)}`);
+        continue;
+      }
       const isCurrent = name === this.currentAccount;
       const sum = tracker.summary();
       const prefix = isCurrent ? color('▶', C.primary) : ' ';
       const nameCol = color(name, isCurrent ? C.value : C.muted);
-      const pct = sum.total ? Math.round((sum.done + sum.errors + sum.skipped) / sum.total * 100) : 0;
-      const bar = this._miniBar(pct, 12);
+      const accPct = sum.total ? Math.round((sum.done + sum.errors + sum.skipped) / sum.total * 100) : 0;
+      const barMini = this._miniBar(accPct, 10);
       const status = sum.errors > 0 ? color(`${sum.errors} err`, C.error)
         : sum.skipped > 0 ? color(`${sum.skipped} skip`, C.warn)
         : tracker.isComplete() ? color('done', C.success)
-        : color(`${pct}%`, C.primary);
+        : sum.total === 0 ? color('queued', C.muted)
+        : color(`${accPct}%`, C.primary);
 
-      lines.push(`  ${prefix} ${nameCol}  ${bar}  ${status}`);
+      lines.push(`  ${prefix} ${nameCol}  ${barMini}  ${status}`);
 
-      // Show current running step
+      // Show current running step (only for current account to save space)
       const running = tracker.steps.find((s) => s.status === STATUS.RUNNING);
-      if (running) {
+      if (running && isCurrent) {
         lines.push(`      ${color(S.pipe, C.muted)} ${color(running.label, C.muted)} ${running.detail ? color(`| ${running.detail}`, C.muted) : ''}`);
       }
 
-      // Show last TX if any
+      // Show last TX if any (only for current account)
       const lastTx = tracker.steps.slice().reverse().find((s) => s.txHash);
       if (lastTx && isCurrent) {
         lines.push(`      ${color(S.arrow, C.muted)} ${color(shortHash(lastTx.txHash), C.primary)}`);
