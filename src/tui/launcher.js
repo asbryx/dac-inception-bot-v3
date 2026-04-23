@@ -20,7 +20,9 @@ const { runMintAllRanksAll } = require('../orchestration/mint-all');
 const { runFaucetLoop, runFaucetLoopAll } = require('../orchestration/faucet-loop');
 const { loadAccountsConfig } = require('../config/accounts');
 const { createConfiguredProxyRotation } = require('../addons/proxies');
-const { promptMultiToggle, promptNumber, promptConfirm } = require('./toggle');
+const { promptMultiToggle, promptNumber, promptConfirm, promptSingleSelect } = require('./toggle');
+const { StepTracker, LiveTracker, AccountProgressMap } = require('./tracker');
+const { loadFeatureState, saveFeatureState, getFeaturesByCategory, buildAutoAllOptionsFromState, buildDefaultState } = require('../domain/features');
 
 const S = theme.symbols;
 
@@ -59,7 +61,6 @@ function renderAutoAllBanner(progressMap, totalAccounts, currentAccount) {
     ``,
   ];
 
-  // Show up to 12 accounts in the box; truncate with "..." if more
   const maxVisible = 12;
   let visible = entries.slice(0, maxVisible);
   if (entries.length > maxVisible) {
@@ -135,78 +136,71 @@ function renderAccountRow({ account, index, total, ok, error, step, message }) {
   return `  ${sym} ${color(account, C.value)} ${color(`(${idx})`, C.muted)}${err}`;
 }
 
-// ─── Auto-all config builder ────────────────────────────
+// ─── Feature Toggle Menu ────────────────────────────────
 
-const AUTO_ALL_DEFAULTS = {
-  tasks: true,
-  badges: true,
-  faucet: false,
-  crates: false,
-  mintScan: true,
-  txGrind: false,
-  receive: false,
-  strategy: false,
-  stake: false,
-  burn: false,
-};
-
-async function buildAutoAllOptions(promptFn) {
+async function buildAutoAllOptionsInteractive(promptFn) {
   const preset = await chooseAutoAllMode(promptFn);
   if (preset === 'default') {
-    return { ...AUTO_ALL_DEFAULTS, profile: 'balanced' };
+    return { ...buildAutoAllOptionsFromState(buildDefaultState()), profile: 'balanced' };
   }
 
-  const selected = await promptMultiToggle('Toggle automation groups', [
-    { label: 'Social/API tasks', value: 'tasks', checked: true },
-    { label: 'Badge claiming', value: 'badges', checked: true },
-    { label: 'Faucet', value: 'faucet', checked: false },
-    { label: 'Crates', value: 'crates', checked: false },
-    { label: 'Mint scan', value: 'mintScan', checked: true },
-    { label: 'Send TX grind', value: 'txGrind', checked: false },
-    { label: 'Receive quest', value: 'receive', checked: false },
-    { label: 'Smart strategy mode', value: 'strategy', checked: false },
-    { label: 'Stake DACC', value: 'stake', checked: false },
-    { label: 'Burn DACC for QE', value: 'burn', checked: false },
-  ]);
+  // Load persistent feature state
+  let featureState = loadFeatureState();
 
-  const enabled = new Set(selected);
-
-  let profile = 'balanced';
-  if (enabled.has('strategy')) {
-    profile = (await chooseProfile(promptFn)) || 'balanced';
+  // Build category-grouped toggle items
+  const groups = getFeaturesByCategory(featureState);
+  const toggleItems = [];
+  for (const group of groups) {
+    toggleItems.push({ label: `── ${group.label} ──`, value: `__header_${group.category}`, checked: false, disabled: true });
+    for (const item of group.items) {
+      toggleItems.push({ label: item.label, value: item.id, checked: item.enabled, description: item.description });
+    }
   }
 
+  const selected = await promptMultiToggle('Toggle Features (Space to toggle, Enter to confirm)', toggleItems);
+
+  // Update feature state
+  const enabledSet = new Set(selected);
+  for (const feat of toggleItems) {
+    if (!feat.disabled && feat.value) {
+      featureState[feat.value] = enabledSet.has(feat.value);
+    }
+  }
+  saveFeatureState(featureState);
+
+  // Build automation options from toggles
+  const options = buildAutoAllOptionsFromState(featureState);
+
+  // Extra config for enabled chain features
   let txCount = 3;
   let txAmount = '0.0001';
-  if (enabled.has('txGrind')) {
+  if (options.txGrind) {
     txCount = await promptNumber(promptFn, 'TX grind count', 3);
     txAmount = (await promptFn('TX grind amount [0.0001]: ')) || '0.0001';
   }
 
   let stakeAmount = null;
-  if (enabled.has('stake')) {
+  if (options.stake) {
     stakeAmount = (await promptFn('Stake amount [0.01]: ')) || '0.01';
   }
 
   let burnAmount = null;
-  if (enabled.has('burn')) {
+  if (options.burn) {
     burnAmount = (await promptFn('Burn amount [0.01]: ')) || '0.01';
   }
 
+  let profile = 'balanced';
+  if (options.strategy) {
+    profile = (await chooseProfile(promptFn)) || 'balanced';
+  }
+
   return {
-    tasks: enabled.has('tasks'),
-    badges: enabled.has('badges'),
-    faucet: enabled.has('faucet'),
-    crates: enabled.has('crates'),
-    mintScan: enabled.has('mintScan'),
-    txGrind: enabled.has('txGrind'),
+    ...options,
     txCount,
     txAmount,
-    receive: enabled.has('receive'),
-    strategy: enabled.has('strategy'),
-    profile,
     stakeAmount,
     burnAmount,
+    profile,
   };
 }
 
@@ -220,6 +214,94 @@ function printAutomationReview(target, options) {
     }),
   ];
   console.log(`\n${box(`${S.star} Automation Review`, lines, 56)}\n`);
+}
+
+// ─── Live Single-Account Automation ─────────────────────
+
+async function runSingleAccountAutomation(context, options, { useVisual = false, quiet = false } = {}) {
+  const tracker = new StepTracker({ title: `Automation — ${context.accountName || 'account'}`, width: 96 });
+  context.bot.tracker = tracker;
+
+  let live = null;
+  if (useVisual) {
+    live = new LiveTracker(tracker, { fps: 4 });
+    live.start();
+  }
+
+  try {
+    const result = await context.services.automation.run(options, ({ step, message }) => {
+      if (!quiet && step && message) {
+        // Progress callback from automation service
+      }
+    });
+    if (live) live.stop();
+    return { ok: true, result, tracker };
+  } catch (error) {
+    if (live) live.stop();
+    tracker.add('Fatal error').fail(tracker.steps[tracker.steps.length - 1]?.id, error);
+    return { ok: false, error: error.message, tracker };
+  }
+}
+
+// ─── Live Multi-Account Automation ──────────────────────
+
+async function runMultiAccountAutomation({ names, contextFactory, options, args, useVisual, quiet }) {
+  const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96 });
+  const totalAccounts = names.length;
+
+  const result = await runAutomationAll({
+    contextFactory,
+    options,
+    selected: args.accounts || undefined,
+    concurrency: args.concurrency || 1,
+    onStart: ({ account, index, total }) => {
+      progressMap.createTracker(account, `Automation — ${account}`);
+      progressMap.setCurrent(account);
+      if (useVisual) {
+        console.clear();
+        process.stdout.write(`${progressMap.render()}\n`);
+      } else if (!quiet) {
+        console.log(renderAccountRow({ account, index, total, step: 'starting', message: '' }));
+      }
+    },
+    onComplete: ({ account, index, total, ok, error }) => {
+      const tracker = progressMap.getTracker(account);
+      if (tracker) {
+        if (ok) tracker.add('Complete').finish(tracker.steps[tracker.steps.length - 1]?.id);
+        else tracker.add('Failed').fail(tracker.steps[tracker.steps.length - 1]?.id, new Error(error));
+      }
+      progressMap.setCurrent(null);
+      if (useVisual) {
+        console.clear();
+        process.stdout.write(`${progressMap.render()}\n`);
+      } else if (!quiet) {
+        console.log(renderAccountRow({ account, index, total, ok, error }));
+      }
+    },
+    onProgress: ({ account, step, message }) => {
+      const tracker = progressMap.getTracker(account);
+      if (tracker && step) {
+        const existing = tracker.steps.find((s) => s.label === step && s.status === 'pending');
+        if (existing) tracker.start(existing.id);
+        else tracker.add(step, { detail: message });
+      }
+      progressMap.setCurrent(account);
+      if (useVisual) {
+        console.clear();
+        process.stdout.write(`${progressMap.render()}\n`);
+      } else if (!quiet && step && message) {
+        console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(step, C.primary)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
+      }
+    },
+    prepareContext: (accountName, context) => {
+      const tracker = progressMap.getTracker(accountName);
+      if (tracker) context.bot.tracker = tracker;
+    },
+  });
+
+  if (useVisual) console.clear();
+  console.log(renderSummaryBundle(summarizeAccounts(result.results)));
+  return result;
 }
 
 // ─── Main launcher loop ─────────────────────────────────
@@ -277,6 +359,8 @@ async function runInteractiveLauncher(context, args = {}) {
         const actionIndex = Number(choice) - 1;
         if (actionIndex >= 0 && actionIndex < actions.length - 1) {
           const action = actions[actionIndex];
+          const tracker = new StepTracker({ title: `Manual — ${action}`, width: 88 });
+          context.bot.tracker = tracker;
           if (action === 'sync') { const result = await context.bot.sync(); console.log(JSON.stringify(result, null, 2)); }
           else if (action === 'explore') await context.bot.runExploration();
           else if (action === 'tasks') await context.bot.runSocialTasks();
@@ -286,26 +370,26 @@ async function runInteractiveLauncher(context, args = {}) {
           else if (action === 'mint-scan') { const rows = await context.bot.getMintableRanks(); console.log(JSON.stringify(rows, null, 2)); }
           else if (action === 'receive') { const result = await context.bot.receiveTransactions({ count: 1, amount: '0.0001' }); console.log(JSON.stringify(result, null, 2)); }
           else if (action === 'mesh') { const result = await context.bot.txMesh({ count: 1, amount: '0.0001' }); console.log(JSON.stringify(result, null, 2)); }
+          if (tracker.steps.length > 0) console.log(`\n${tracker.render()}\n`);
         }
         await prompt('\nPress Enter to continue...');
       }
 
       else if (mode === 'auto') {
-        const options = await buildAutoAllOptions((q) => prompt(q));
+        const options = await buildAutoAllOptionsInteractive((q) => prompt(q));
         const reviewTarget = context.accountName || 'default account';
         printAutomationReview(reviewTarget, options);
         const go = await promptConfirm((q) => prompt(q), 'Start automation?');
         if (!go) { console.log(color('  Cancelled.', C.muted)); await prompt('\nPress Enter to continue...'); continue; }
 
-        console.log(`\n  ${color(S.tri, C.primary)} Running automation on ${color(reviewTarget, C.value)}...`);
-        await context.services.automation.run(options, ({ step, message }) => {
-          if (!args.quiet && step && message) console.log(`  ${color(S.tri, C.primary)} ${color(step, C.value)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
-        });
+        const useVisual = process.stdout.isTTY && !args.quiet;
+        const result = await runSingleAccountAutomation(context, options, { useVisual, quiet: args.quiet });
+        if (!useVisual && result.tracker) console.log(`\n${result.tracker.render()}\n`);
         await prompt('\nPress Enter to continue...');
       }
 
       else if (mode === 'auto-all') {
-        const options = await buildAutoAllOptions((q) => prompt(q));
+        const options = await buildAutoAllOptionsInteractive((q) => prompt(q));
         const config = loadAccountsConfig();
         const names = Object.keys(config.accounts);
         const reviewTarget = `${names.length} accounts`;
@@ -314,42 +398,7 @@ async function runInteractiveLauncher(context, args = {}) {
         if (!go) { console.log(color('  Cancelled.', C.muted)); await prompt('\nPress Enter to continue...'); continue; }
 
         const useVisual = process.stdout.isTTY && !args.quiet;
-        const progressMap = new Map();
-        const totalAccounts = names.length;
-
-        const result = await runAutomationAll({
-          contextFactory,
-          options,
-          selected: args.accounts || undefined,
-          onStart: ({ account, index, total }) => {
-            progressMap.set(account, { index, total, step: 'starting', message: '' });
-            if (useVisual) {
-              renderAutoAllBanner(progressMap, totalAccounts, account);
-            } else if (!args.quiet) {
-              console.log(renderAccountRow({ account, index, total, step: 'starting', message: '' }));
-            }
-          },
-          onComplete: ({ account, index, total, ok, error }) => {
-            progressMap.set(account, { index, total, ok, error });
-            if (useVisual) {
-              renderAutoAllBanner(progressMap, totalAccounts, account);
-            } else if (!args.quiet) {
-              console.log(renderAccountRow({ account, index, total, ok, error }));
-            }
-          },
-          onProgress: ({ account, step, message }) => {
-            const p = progressMap.get(account) || { index: 0, total: 1 };
-            progressMap.set(account, { ...p, step, message });
-            if (useVisual) {
-              renderAutoAllBanner(progressMap, totalAccounts, account);
-            } else if (!args.quiet && step && message) {
-              console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(step, C.primary)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
-            }
-          },
-        });
-
-        if (useVisual) console.clear();
-        console.log(renderSummaryBundle(summarizeAccounts(result.results)));
+        await runMultiAccountAutomation({ names, contextFactory, options, args, useVisual, quiet: args.quiet });
         await prompt('\nPress Enter to continue...');
       }
 
@@ -366,7 +415,8 @@ async function runInteractiveLauncher(context, args = {}) {
         const intervalMinutes = await promptNumber((q) => prompt(q), 'Interval minutes', 60);
         const useVisual = process.stdout.isTTY && !args.quiet;
         const progressMap = new Map();
-        const totalAccounts = names.length;
+        const config = loadAccountsConfig();
+        const totalAccounts = Object.keys(config.accounts).length;
 
         const result = await runFaucetLoopAll({
           contextFactory,
@@ -396,6 +446,8 @@ async function runInteractiveLauncher(context, args = {}) {
         const toolIndex = Number(choice) - 1;
         if (toolIndex >= 0 && toolIndex < tools.length - 1) {
           const tool = tools[toolIndex];
+          const tracker = new StepTracker({ title: `Advanced — ${tool}`, width: 88 });
+          context.bot.tracker = tracker;
           if (tool === 'tx-grind') await context.bot.grindTransactions({ count: 3, amount: '0.0001' });
           else if (tool === 'receive') { const result = await context.bot.receiveTransactions({ count: 1, amount: '0.0001' }); console.log(JSON.stringify(result, null, 2)); }
           else if (tool === 'burn') { const amount = (await prompt('Burn amount [0.01]: ')) || '0.01'; console.log(JSON.stringify(await context.bot.burnForQE(amount), null, 2)); }
@@ -405,6 +457,7 @@ async function runInteractiveLauncher(context, args = {}) {
           else if (tool === 'track') { const result = await context.bot.snapshotTracking(); console.log(JSON.stringify(result, null, 2)); }
           else if (tool === 'campaign') { const profile = (await chooseProfile((q) => prompt(q))) || 'balanced'; console.log(JSON.stringify(await context.bot.runCampaign({ loops: 1, strategyProfile: profile, intervalSeconds: 0 }), null, 2)); }
           else if (tool === 'faucet-loop') { const result = await runFaucetLoop(context.bot, { durationHours: 24, intervalMinutes: 60 }); console.log(JSON.stringify(result, null, 2)); }
+          if (tracker.steps.length > 0) console.log(`\n${tracker.render()}\n`);
         }
         await prompt('\nPress Enter to continue...');
       }

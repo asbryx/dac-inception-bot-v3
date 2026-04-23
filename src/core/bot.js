@@ -11,6 +11,7 @@ const authSession = require('../auth/session');
 const walletAuth = require('../auth/wallet-auth');
 const statusDomain = require('../domain/status');
 const { resolveAccountProxy, createConfiguredProxyRotation } = require('../addons/proxies');
+const { StepTracker } = require('../tui/tracker');
 
 const BASE_URL = 'https://inception.dachain.io';
 const API_BASE = `${BASE_URL}/api/inception`;
@@ -289,7 +290,7 @@ function collectRunStepPlan(options = {}) {
 }
 
 class DACBot {
-  constructor({ cookies, csrf, privateKey, account, verbose = true, humanMode = true, fastMode = false, proxy = null, proxyRotation = null } = {}) {
+  constructor({ cookies, csrf, privateKey, account, verbose = true, humanMode = true, fastMode = false, proxy = null, proxyRotation = null, tracker = null } = {}) {
     this.verbose = verbose;
     this.humanFeatures = fastMode ? fastHumanFeaturesConfig() : loadHumanFeatures();
     this.fastMode = fastMode;
@@ -306,6 +307,7 @@ class DACBot {
       network: { value: null, expiresAt: 0, pending: null },
       status: { value: null, expiresAt: 0, pending: null },
     };
+    this.tracker = tracker || null;
 
     const appConfig = loadAppConfig();
     const saved = this.accountName && appConfig.accounts[this.accountName]
@@ -351,6 +353,58 @@ class DACBot {
   }
 
   log(message) { if (this.verbose) console.log(message); }
+
+  // ─── Step Tracking ────────────────────────────────────
+
+  _trackAdd(label, detail = null) {
+    if (!this.tracker) return null;
+    return this.tracker.add(label, { detail });
+  }
+
+  _trackStart(stepId) {
+    if (!this.tracker || !stepId) return;
+    this.tracker.start(stepId);
+  }
+
+  _trackFinish(stepId, meta = {}) {
+    if (!this.tracker || !stepId) return;
+    this.tracker.finish(stepId, meta);
+  }
+
+  _trackFail(stepId, error) {
+    if (!this.tracker || !stepId) return;
+    this.tracker.fail(stepId, error);
+  }
+
+  _trackSkip(stepId, reason = null) {
+    if (!this.tracker || !stepId) return;
+    this.tracker.skip(stepId, reason);
+  }
+
+  _trackTx(stepId, { txHash, explorerUrl, amount } = {}) {
+    if (!this.tracker || !stepId) return;
+    this.tracker.setTx(stepId, { txHash, explorerUrl, amount });
+  }
+
+  async _track(label, fn, { detail = null, txMeta = false } = {}) {
+    const step = this._trackAdd(label, detail);
+    if (!step) return fn();
+    this._trackStart(step.id);
+    try {
+      const result = await fn();
+      const meta = {};
+      if (txMeta && result?.hash) {
+        meta.txHash = result.hash;
+        meta.explorerUrl = `${EXPLORER_URL}/tx/${result.hash}`;
+        meta.amount = result.amount || null;
+      }
+      this._trackFinish(step.id, meta);
+      return result;
+    } catch (error) {
+      this._trackFail(step.id, error);
+      throw error;
+    }
+  }
 
   async humanDelay(baseMs, variancePct = null) { if (!this.humanMode) return; const pct = variancePct ?? this.humanFeatures.jitterVariancePct ?? 40; await sleep(jitter(baseMs, pct)); }
 
@@ -468,10 +522,12 @@ class DACBot {
 
   async sendNative(to, amountEth) {
     if (!this.wallet) throw new Error('No private key configured');
-    const request = await buildLegacyTransferRequest(this.wallet, this.provider, { to, value: ethers.parseEther(String(amountEth)) });
-    const tx = await this.wallet.sendTransaction(request);
-    await waitForTxReceipt(this.provider, tx.hash);
-    return { hash: tx.hash };
+    return this._track('Send native', async () => {
+      const request = await buildLegacyTransferRequest(this.wallet, this.provider, { to, value: ethers.parseEther(String(amountEth)) });
+      const tx = await this.wallet.sendTransaction(request);
+      await waitForTxReceipt(this.provider, tx.hash);
+      return { hash: tx.hash, amount: amountEth, to, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+    }, { detail: `${shortAddr(this.wallet.address)} → ${shortAddr(to)} ${amountEth} DACC`, txMeta: true });
   }
 
   async grindTransactions({ count = 3, amount = '0.0001', recipients = [] } = {}) {
@@ -562,28 +618,32 @@ class DACBot {
 
   async burnForQE(amountEth) {
     if (!this.exchange) throw new Error('No private key configured');
-    this.log(`  Burn: submitting ${amountEth} DACC...`);
-    const tx = await this.exchange.burnForQE({ value: ethers.parseEther(String(amountEth)) });
-    this.log(`  Burn submitted: ${tx.hash}`);
-    await waitForTxReceipt(this.provider, tx.hash);
-    const confirm = await this.confirmBurn(tx.hash);
-    this.invalidateRuntimeCache(['profile', 'status']);
-    await this.recordTaskCompletion('first_swap', 'Record burn for QE');
-    this.log(`  Burn confirmed: ${tx.hash}`);
-    return { hash: tx.hash, confirm };
+    return this._track(`Burn ${amountEth} DACC for QE`, async () => {
+      this.log(`  Burn: submitting ${amountEth} DACC...`);
+      const tx = await this.exchange.burnForQE({ value: ethers.parseEther(String(amountEth)) });
+      this.log(`  Burn submitted: ${tx.hash}`);
+      await waitForTxReceipt(this.provider, tx.hash);
+      const confirm = await this.confirmBurn(tx.hash);
+      this.invalidateRuntimeCache(['profile', 'status']);
+      await this.recordTaskCompletion('first_swap', 'Record burn for QE');
+      this.log(`  Burn confirmed: ${tx.hash}`);
+      return { hash: tx.hash, amount: amountEth, confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+    }, { detail: `${amountEth} DACC → QE`, txMeta: true });
   }
 
   async stakeDacc(amountEth) {
     if (!this.exchange) throw new Error('No private key configured');
-    this.log(`  Stake: submitting ${amountEth} DACC...`);
-    const tx = await this.exchange.stake({ value: ethers.parseEther(String(amountEth)) });
-    this.log(`  Stake submitted: ${tx.hash}`);
-    await waitForTxReceipt(this.provider, tx.hash);
-    const confirm = await this.confirmStake(tx.hash);
-    this.invalidateRuntimeCache(['profile', 'status']);
-    await this.recordTaskCompletion('liquidity', 'Record DACC stake');
-    this.log(`  Stake confirmed: ${tx.hash}`);
-    return { hash: tx.hash, confirm };
+    return this._track(`Stake ${amountEth} DACC`, async () => {
+      this.log(`  Stake: submitting ${amountEth} DACC...`);
+      const tx = await this.exchange.stake({ value: ethers.parseEther(String(amountEth)) });
+      this.log(`  Stake submitted: ${tx.hash}`);
+      await waitForTxReceipt(this.provider, tx.hash);
+      const confirm = await this.confirmStake(tx.hash);
+      this.invalidateRuntimeCache(['profile', 'status']);
+      await this.recordTaskCompletion('liquidity', 'Record DACC stake');
+      this.log(`  Stake confirmed: ${tx.hash}`);
+      return { hash: tx.hash, amount: amountEth, confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+    }, { detail: `${amountEth} DACC staked`, txMeta: true });
   }
 
   async recordTaskCompletion(taskKey, label, extra = {}) {
@@ -606,76 +666,90 @@ class DACBot {
       ['email', 'Email task'],
       ['verify_email', 'Verify email'],
     ];
-    for (const [taskKey, label] of tasks) await this.recordTaskCompletion(taskKey, label);
+    for (const [taskKey, label] of tasks) {
+      await this._track(label, async () => this.recordTaskCompletion(taskKey, label), { detail: taskKey });
+    }
   }
 
   async runExploration() {
     const visits = [['/faucet', 'Visit faucet', 'exp_faucet'], ['/leaderboard', 'Visit leaderboard', 'exp_leaderboard'], ['/badges', 'Visit badge gallery', 'exp_badges']];
     for (const [pathValue, label, taskKey] of visits) {
-      const result = await this.visitPage(pathValue);
-      if (result.success) this.log(`  ${label}`);
-      else if (result._status === 400 || String(result.error || '').toLowerCase().includes('already')) this.log(`  ${label}: done`);
-      else this.log(`  ${label}: ${result.error || 'unknown error'}`);
-      if (taskKey) await this.recordTaskCompletion(taskKey, label);
+      await this._track(label, async () => {
+        const result = await this.visitPage(pathValue);
+        if (result.success) this.log(`  ${label}`);
+        else if (result._status === 400 || String(result.error || '').toLowerCase().includes('already')) this.log(`  ${label}: done`);
+        else this.log(`  ${label}: ${result.error || 'unknown error'}`);
+        if (taskKey) await this.recordTaskCompletion(taskKey, label);
+        return result;
+      }, { detail: pathValue });
     }
-    const result = await this.visitExplorer();
-    if (result.success && result.awarded) this.log('  Explorer visit: badge earned');
-    else if (result.success) this.log('  Explorer: done');
-    else this.log(`  Explorer: ${result.error || 'unknown error'}`);
-    await this.recordTaskCompletion('exp_explorer', 'Visit explorer');
+    await this._track('Visit explorer', async () => {
+      const result = await this.visitExplorer();
+      if (result.success && result.awarded) this.log('  Explorer visit: badge earned');
+      else if (result.success) this.log('  Explorer: done');
+      else this.log(`  Explorer: ${result.error || 'unknown error'}`);
+      await this.recordTaskCompletion('exp_explorer', 'Visit explorer');
+      return result;
+    });
   }
 
   async runBadgeClaim() {
-    const profile = await this.profile({ force: true });
-    if (!Array.isArray(profile.badges)) { this.log('  Could not read earned badges'); return { claimed: [], skippedEarned: [], skippedUnsupported: [], failed: [] }; }
-    const earned = new Set(profile.badges.map((b) => b.badge__key || b.badge_key || b.key).filter(Boolean));
-    const catalog = (await this.badgeCatalog({ force: true })).badges || [];
-    const supportedCategories = new Set(['exploration', 'onboarding', 'social', 'milestone', 'onchain']);
-    const claimed = [], skippedEarned = [], skippedUnsupported = [], failed = [];
-    this.log(`  Badge detection: earned=${earned.size} catalog=${catalog.length}`);
-    for (const badge of catalog) {
-      const badgeKey = badge.key || badge.badge_key;
-      if (!badgeKey) continue;
-      if (earned.has(badgeKey)) { skippedEarned.push(badgeKey); continue; }
-      if (!supportedCategories.has(badge.category)) { skippedUnsupported.push(badgeKey); continue; }
-      const result = await this.claimBadge(badgeKey);
-      if (result.success) { claimed.push({ key: badgeKey, name: badge.name, qe: result.qe_awarded ?? badge.qe_reward ?? 0 }); this.invalidateRuntimeCache(['profile', 'status']); this.log(`  ${badge.name}: +${result.qe_awarded ?? badge.qe_reward ?? 0} QE`); await this.humanPause('badge'); }
-      else { failed.push({ key: badgeKey, name: badge.name, error: result.error || 'unknown error' }); this.log(`  ${badge.name}: ${result.error || 'unknown error'}`); }
-    }
-    this.log(`  Badge summary: claimed=${claimed.length} skipped-earned=${skippedEarned.length} skipped-unsupported=${skippedUnsupported.length} failed=${failed.length}`);
-    if (claimed.length) this.log(`  Claimed: ${claimed.map((row) => row.name).join(', ')}`);
-    if (failed.length) this.log(`  Failed: ${failed.map((row) => `${row.name} (${row.error})`).join('; ')}`);
-    if (!claimed.length && !failed.length) this.log('  No claimable badges');
-    return { claimed, skippedEarned, skippedUnsupported, failed };
+    return this._track('Claim badges', async () => {
+      const profile = await this.profile({ force: true });
+      if (!Array.isArray(profile.badges)) { this.log('  Could not read earned badges'); return { claimed: [], skippedEarned: [], skippedUnsupported: [], failed: [] }; }
+      const earned = new Set(profile.badges.map((b) => b.badge__key || b.badge_key || b.key).filter(Boolean));
+      const catalog = (await this.badgeCatalog({ force: true })).badges || [];
+      const supportedCategories = new Set(['exploration', 'onboarding', 'social', 'milestone', 'onchain']);
+      const claimed = [], skippedEarned = [], skippedUnsupported = [], failed = [];
+      this.log(`  Badge detection: earned=${earned.size} catalog=${catalog.length}`);
+      for (const badge of catalog) {
+        const badgeKey = badge.key || badge.badge_key;
+        if (!badgeKey) continue;
+        if (earned.has(badgeKey)) { skippedEarned.push(badgeKey); continue; }
+        if (!supportedCategories.has(badge.category)) { skippedUnsupported.push(badgeKey); continue; }
+        const result = await this.claimBadge(badgeKey);
+        if (result.success) { claimed.push({ key: badgeKey, name: badge.name, qe: result.qe_awarded ?? badge.qe_reward ?? 0 }); this.invalidateRuntimeCache(['profile', 'status']); this.log(`  ${badge.name}: +${result.qe_awarded ?? badge.qe_reward ?? 0} QE`); await this.humanPause('badge'); }
+        else { failed.push({ key: badgeKey, name: badge.name, error: result.error || 'unknown error' }); this.log(`  ${badge.name}: ${result.error || 'unknown error'}`); }
+      }
+      this.log(`  Badge summary: claimed=${claimed.length} skipped-earned=${skippedEarned.length} skipped-unsupported=${skippedUnsupported.length} failed=${failed.length}`);
+      if (claimed.length) this.log(`  Claimed: ${claimed.map((row) => row.name).join(', ')}`);
+      if (failed.length) this.log(`  Failed: ${failed.map((row) => `${row.name} (${row.error})`).join('; ')}`);
+      if (!claimed.length && !failed.length) this.log('  No claimable badges');
+      return { claimed, skippedEarned, skippedUnsupported, failed };
+    });
   }
 
   async runFaucet() {
-    const result = await this.claimFaucet();
-    if (result.success) { this.invalidateRuntimeCache(['profile', 'status']); this.log(`  Faucet: +${result.amount ?? '?'} DACC`); return result; }
-    if (result.code === 'social_required') this.log('  Faucet: needs X or Discord link');
-    else if (String(result.error || '').toLowerCase().includes('available in')) this.log(`  Faucet: ${result.error}`);
-    else this.log(`  Faucet: ${result.error || 'unknown error'}`);
-    return result;
+    return this._track('Claim faucet', async () => {
+      const result = await this.claimFaucet();
+      if (result.success) { this.invalidateRuntimeCache(['profile', 'status']); this.log(`  Faucet: +${result.amount ?? '?'} DACC`); return result; }
+      if (result.code === 'social_required') this.log('  Faucet: needs X or Discord link');
+      else if (String(result.error || '').toLowerCase().includes('available in')) this.log(`  Faucet: ${result.error}`);
+      else this.log(`  Faucet: ${result.error || 'unknown error'}`);
+      return result;
+    });
   }
 
   async runCrates(maxOpens = 5) {
-    const history = await this.crateHistory();
-    const opensToday = history.opens_today || 0;
-    const dailyLimit = history.daily_open_limit || 5;
-    const remaining = Math.min(Math.max(dailyLimit - opensToday, 0), maxOpens);
-    if (remaining <= 0) { this.log(`  Crates: ${opensToday}/${dailyLimit} used today`); return []; }
-    const results = [];
-    this.log(`  Opening ${remaining} crates (${opensToday}/${dailyLimit} used)...`);
-    for (let i = 0; i < remaining; i += 1) {
-      const result = await this.openCrate();
-      if (!result.success) { this.log(`    Crate ${i + 1}: ${result.error || 'unknown error'}`); break; }
-      const reward = result.reward || {};
-      this.invalidateRuntimeCache(['profile', 'status']);
-      this.log(`    Crate ${i + 1}: ${reward.label || '?'} (+${reward.amount || 0} QE) -> ${result.new_total_qe ?? '?'} total`);
-      results.push(result);
-      await this.humanPause('crate');
-    }
-    return results;
+    return this._track('Open crates', async () => {
+      const history = await this.crateHistory();
+      const opensToday = history.opens_today || 0;
+      const dailyLimit = history.daily_open_limit || 5;
+      const remaining = Math.min(Math.max(dailyLimit - opensToday, 0), maxOpens);
+      if (remaining <= 0) { this.log(`  Crates: ${opensToday}/${dailyLimit} used today`); return []; }
+      const results = [];
+      this.log(`  Opening ${remaining} crates (${opensToday}/${dailyLimit} used)...`);
+      for (let i = 0; i < remaining; i += 1) {
+        const result = await this.openCrate();
+        if (!result.success) { this.log(`    Crate ${i + 1}: ${result.error || 'unknown error'}`); break; }
+        const reward = result.reward || {};
+        this.invalidateRuntimeCache(['profile', 'status']);
+        this.log(`    Crate ${i + 1}: ${reward.label || '?'} (+${reward.amount || 0} QE) -> ${result.new_total_qe ?? '?'} total`);
+        results.push(result);
+        await this.humanPause('crate');
+      }
+      return results;
+    });
   }
 
   async getMintableRanks() {
@@ -710,16 +784,18 @@ class DACBot {
     if (!this.wallet || !this.nft) throw new Error('No private key configured');
     const rank = RANKS.find((r) => r.badgeKey === rankKey);
     if (!rank) throw new Error(`Unknown rank key: ${rankKey}`);
-    const sig = await this.claimSignature(rankKey);
-    if (!sig.success || !sig.signature) throw new Error(sig.error || 'No mint signature returned');
-    const normalizedSignature = String(sig.signature).replace(/^0x/i, '');
-    const alreadyMinted = await this.nft.hasMinted(this.wallet.address, sig.rank_id);
-    if (alreadyMinted) return { alreadyMinted: true, rankKey, rankId: sig.rank_id };
-    const tx = await this.nft.claimRank(sig.rank_id, `0x${normalizedSignature}`);
-    await waitForTxReceipt(this.provider, tx.hash);
-    const confirm = await this.confirmMint(tx.hash, rankKey);
-    await this.recordTaskCompletion('nft_minter', 'Record NFT mint');
-    return { rankKey, rankId: sig.rank_id, hash: tx.hash, confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+    return this._track(`Mint ${rank.name}`, async () => {
+      const sig = await this.claimSignature(rankKey);
+      if (!sig.success || !sig.signature) throw new Error(sig.error || 'No mint signature returned');
+      const normalizedSignature = String(sig.signature).replace(/^0x/i, '');
+      const alreadyMinted = await this.nft.hasMinted(this.wallet.address, sig.rank_id);
+      if (alreadyMinted) return { alreadyMinted: true, rankKey, rankId: sig.rank_id };
+      const tx = await this.nft.claimRank(sig.rank_id, `0x${normalizedSignature}`);
+      await waitForTxReceipt(this.provider, tx.hash);
+      const confirm = await this.confirmMint(tx.hash, rankKey);
+      await this.recordTaskCompletion('nft_minter', 'Record NFT mint');
+      return { rankKey, rankId: sig.rank_id, hash: tx.hash, confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+    }, { detail: rankKey, txMeta: true });
   }
 
   async mintRankWithRetry(rankKey, attempts = 3) {
@@ -832,23 +908,44 @@ class DACBot {
 
   async run(options = {}) {
     const { crates = true, faucet = true, tasks = true, badges = true, txGrind = false, txCount = 3, txAmount = '0.0001', burnAmount = null, stakeAmount = null, strategy = false, profile = DEFAULT_PROFILE, mintScan = true, receive = false, receiveCount = 1, receiveAmount = txAmount, mesh = false, meshCount = 1, meshAmount = txAmount, progress = null } = options;
+
+    // Backward-compat progress callback
     const plannedSteps = collectRunStepPlan({ crates, faucet, tasks, badges, txGrind, txCount, burnAmount, stakeAmount, mintScan, receive, receiveCount, mesh, meshCount });
     let currentStep = 0;
-    const advanceStep = (key, label, detail = null) => { const stepIndex = plannedSteps.findIndex((item) => item.key === key); currentStep = stepIndex >= 0 ? stepIndex + 1 : Math.min(currentStep + 1, plannedSteps.length || 1); if (progress) progress({ step: currentStep, total: plannedSteps.length || 1, label, detail, key }); };
+    const advanceStep = (key, label, detail = null) => {
+      const stepIndex = plannedSteps.findIndex((item) => item.key === key);
+      currentStep = stepIndex >= 0 ? stepIndex + 1 : Math.min(currentStep + 1, plannedSteps.length || 1);
+      if (progress) progress({ step: currentStep, total: plannedSteps.length || 1, label, detail, key });
+    };
 
     await this.ensureSession(false);
     let strategyPlan = null;
+
     if (strategy) {
       advanceStep('strategy', `Strategy warmup (${profile})`);
-      this.log('\n  Strategy warmup...');
-      try { strategyPlan = await this.runStrategy({ profileName: profile, txCount, txAmount, ...(burnAmount ? { minBurnAmount: burnAmount } : {}), ...(stakeAmount ? { minStakeAmount: stakeAmount } : {}) }); this.invalidateRuntimeCache(['profile', 'status']); }
-      catch (error) { this.log(`  Strategy: ${formatErrorMessage(error)}`); }
+      try {
+        strategyPlan = await this._track(`Strategy warmup (${profile})`, async () => {
+          this.log('\n  Strategy warmup...');
+          const plan = await this.runStrategy({ profileName: profile, txCount, txAmount, ...(burnAmount ? { minBurnAmount: burnAmount } : {}), ...(stakeAmount ? { minStakeAmount: stakeAmount } : {}) });
+          this.invalidateRuntimeCache(['profile', 'status']);
+          return plan;
+        });
+      } catch (error) {
+        this.log(`  Strategy: ${formatErrorMessage(error)}`);
+      }
     }
 
-    const before = await this.status();
-    if (before.error) throw new Error(before.error);
-    const network = await this.network();
-    if (network.error) throw new Error(network.error);
+    const before = await this._track('Fetch status', async () => {
+      const s = await this.status();
+      if (s.error) throw new Error(s.error);
+      return s;
+    });
+
+    const network = await this._track('Fetch network', async () => {
+      const n = await this.network();
+      if (n.error) throw new Error(n.error);
+      return n;
+    });
 
     this.log(`\n  DAC INCEPTION BOT -- ${new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC')}`);
     this.log(`  QE=${before.qe ?? '?'} | DACC=${before.dacc ?? '?'} | #${before.rank ?? '?'} | ${before.badges ?? 0}/${resolveBadgeTotal(before.badgeTotal, 1)} badges | ${before.streak ?? 0}d streak | ${before.multiplier ?? 1}x`);
@@ -857,22 +954,72 @@ class DACBot {
     if (!before.faucetAvailable) this.log(`  Faucet cooldown: ${humanCooldown(before.faucetCooldownSeconds || 0)}`);
     if (this.wallet) this.log(`  Signer: ${this.wallet.address}`);
 
-    advanceStep('sync', 'Sync account state'); this.log('\n  Syncing...');
-    const sync = await this.sync(); this.invalidateRuntimeCache(['profile', 'status']);
-    if (sync.success) this.log(`  DACC=${sync.dacc_balance}, txns=${sync.tx_count}`);
-    else this.log(`  Sync: ${sync.error || 'unknown error'}`);
+    await this._track('Sync account', async () => {
+      advanceStep('sync', 'Sync account state');
+      const sync = await this.sync();
+      this.invalidateRuntimeCache(['profile', 'status']);
+      if (sync.success) this.log(`  DACC=${sync.dacc_balance}, txns=${sync.tx_count}`);
+      else this.log(`  Sync: ${sync.error || 'unknown error'}`);
+      return sync;
+    });
 
-    advanceStep('explore', 'Run exploration checks'); this.log('\n  Exploration...'); await this.runExploration();
-    if (tasks) { advanceStep('tasks', 'Complete social tasks'); this.log('\n  Tasks...'); try { await this.runSocialTasks(); } catch (error) { this.log(`  Tasks: ${formatErrorMessage(error)}`); } }
-    if (badges) { advanceStep('badges', 'Claim badges'); this.log('\n  Badges...'); try { await this.runBadgeClaim(); } catch (error) { this.log(`  Badges: ${formatErrorMessage(error)}`); } }
-    if (faucet) { advanceStep('faucet', 'Claim faucet'); this.log('\n  Faucet...'); try { await this.runFaucet(); } catch (error) { this.log(`  Faucet: ${formatErrorMessage(error)}`); } }
-    if (txGrind) { advanceStep('txGrind', `Send TX x${txCount}`); this.log('\n  TX Grind...'); try { await this.grindTransactions({ count: txCount, amount: txAmount }); } catch (error) { this.log(`  TX Grind: ${formatErrorMessage(error)}`); } }
-    if (receive) { advanceStep('receive', `Receive quest x${receiveCount}`); this.log('\n  Receive quest...'); try { await this.receiveTransactions({ count: receiveCount, amount: receiveAmount }); } catch (error) { this.log(`  Receive: ${formatErrorMessage(error)}`); } }
-    if (mesh) { advanceStep('mesh', `Mesh loop x${meshCount}`); this.log('\n  Send + receive mesh...'); try { await this.txMesh({ count: meshCount, amount: meshAmount }); } catch (error) { this.log(`  Mesh: ${formatErrorMessage(error)}`); } }
-    if (burnAmount) { advanceStep('burn', `Burn ${burnAmount} DACC`); this.log('\n  Burn for QE...'); try { const result = await this.burnForQE(burnAmount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { this.log(`  Burn: ${formatErrorMessage(error)}`); } }
-    if (stakeAmount) { advanceStep('stake', `Stake ${stakeAmount} DACC`); this.log('\n  Stake DACC...'); try { const result = await this.stakeDacc(stakeAmount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake: ${formatErrorMessage(error)}`); } }
+    await this._track('Exploration', async () => {
+      advanceStep('explore', 'Run exploration checks');
+      this.log('\n  Exploration...');
+      return this.runExploration();
+    });
+
+    if (tasks) {
+      advanceStep('tasks', 'Complete social tasks');
+      this.log('\n  Tasks...');
+      try { await this.runSocialTasks(); } catch (error) { this.log(`  Tasks: ${formatErrorMessage(error)}`); }
+    }
+
+    if (badges) {
+      advanceStep('badges', 'Claim badges');
+      this.log('\n  Badges...');
+      try { await this.runBadgeClaim(); } catch (error) { this.log(`  Badges: ${formatErrorMessage(error)}`); }
+    }
+
+    if (faucet) {
+      advanceStep('faucet', 'Claim faucet');
+      this.log('\n  Faucet...');
+      try { await this.runFaucet(); } catch (error) { this.log(`  Faucet: ${formatErrorMessage(error)}`); }
+    }
+
+    if (txGrind) {
+      advanceStep('txGrind', `Send TX x${txCount}`);
+      this.log('\n  TX Grind...');
+      try { await this.grindTransactions({ count: txCount, amount: txAmount }); } catch (error) { this.log(`  TX Grind: ${formatErrorMessage(error)}`); }
+    }
+
+    if (receive) {
+      advanceStep('receive', `Receive quest x${receiveCount}`);
+      this.log('\n  Receive quest...');
+      try { await this.receiveTransactions({ count: receiveCount, amount: receiveAmount }); } catch (error) { this.log(`  Receive: ${formatErrorMessage(error)}`); }
+    }
+
+    if (mesh) {
+      advanceStep('mesh', `Mesh loop x${meshCount}`);
+      this.log('\n  Send + receive mesh...');
+      try { await this.txMesh({ count: meshCount, amount: meshAmount }); } catch (error) { this.log(`  Mesh: ${formatErrorMessage(error)}`); }
+    }
+
+    if (burnAmount) {
+      advanceStep('burn', `Burn ${burnAmount} DACC`);
+      this.log('\n  Burn for QE...');
+      try { const result = await this.burnForQE(burnAmount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { this.log(`  Burn: ${formatErrorMessage(error)}`); }
+    }
+
+    if (stakeAmount) {
+      advanceStep('stake', `Stake ${stakeAmount} DACC`);
+      this.log('\n  Stake DACC...');
+      try { const result = await this.stakeDacc(stakeAmount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake: ${formatErrorMessage(error)}`); }
+    }
+
     if (mintScan) {
-      advanceStep('mintScan', 'Scan and auto-mint eligible ranks'); this.log('\n  Mint Scan...');
+      advanceStep('mintScan', 'Scan and auto-mint eligible ranks');
+      this.log('\n  Mint Scan...');
       try {
         const mintRows = await this.getMintableRanks();
         const mintable = mintRows.filter((r) => r.backendReady && !r.minted);
@@ -880,10 +1027,20 @@ class DACBot {
         if (mintable.length) { this.log('\n  Auto-minting backend-ready ranks...'); const minted = await this.mintAllEligibleRanks(); const okCount = (minted.results || []).filter((row) => row.ok).length; const failCount = (minted.results || []).filter((row) => !row.ok).length; this.log(`  Auto-mint complete: ${okCount} success, ${failCount} failed`); this.invalidateRuntimeCache(['profile', 'status']); }
       } catch (error) { this.log(`  Mint Scan: ${formatErrorMessage(error)}`); }
     }
-    if (crates) { advanceStep('crates', 'Open crates'); this.log('\n  Crates...'); try { await this.runCrates(); } catch (error) { this.log(`  Crates: ${formatErrorMessage(error)}`); } }
-    const after = await this.status();
-    this.log(`\n  FINAL: QE=${after.qe} | DACC=${after.dacc} | #${after.rank} | ${after.badges} badges | tx_count=${after.txCount}\n`);
-    return { ok: true, strategyPlan };
+
+    if (crates) {
+      advanceStep('crates', 'Open crates');
+      this.log('\n  Crates...');
+      try { await this.runCrates(); } catch (error) { this.log(`  Crates: ${formatErrorMessage(error)}`); }
+    }
+
+    const after = await this._track('Final status', async () => {
+      const s = await this.status();
+      this.log(`\n  FINAL: QE=${s.qe} | DACC=${s.dacc} | #${s.rank} | ${s.badges} badges | tx_count=${s.txCount}\n`);
+      return s;
+    });
+
+    return { ok: true, strategyPlan, after };
   }
 }
 

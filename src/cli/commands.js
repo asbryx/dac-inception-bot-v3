@@ -201,7 +201,6 @@ async function handleRunAll(args) {
   const result = await runAutomationAll({
     contextFactory: makeContextFactory(args, proxyRotation),
     options,
-    accountNames: args.accounts || undefined,
     selected: args.accounts || undefined,
     concurrency: args.concurrency || 1,
     onStart: ({ account, index, total }) => {
