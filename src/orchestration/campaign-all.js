@@ -13,7 +13,7 @@ async function runCampaignAll({ contextFactory, selected = null, profile = 'bala
   }));
   const results = await runAcrossAccounts(validAccounts, async (accountName) => {
     const context = await contextFactory(accountName);
-    return context.bot.runCampaign({ loops: 1, strategyProfile: profile, intervalSeconds: 0 });
+    return context.bot.runCampaign({ loops: 1, strategyProfile: profile, intervalMinutes: 0 });
   }, { onStart, onComplete, concurrency, action: 'campaign-all' });
   return {
     task: 'campaign-all',

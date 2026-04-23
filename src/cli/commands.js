@@ -486,7 +486,7 @@ async function runCommand(args) {
 
   if (command === 'campaign') {
     const bot = createDirectBot(args);
-    const result = await bot.runCampaign({ loops: 1, strategyProfile: args.profile || 'balanced', intervalSeconds: 0 });
+    const result = await bot.runCampaign({ loops: 1, strategyProfile: args.profile || 'balanced', intervalMinutes: 0 });
     printStructured(args, result, renderCampaignPanel);
     return;
   }

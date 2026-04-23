@@ -60,9 +60,11 @@ npm start
 
 ### Automation & Orchestration
 - **Single-account automation** — run tasks for one wallet with `run`
-- **Multi-account orchestration** — run all configured wallets sequentially with `run-all`
+- **Multi-account orchestration** — run all configured wallets concurrently with `run-all` (up to 10 parallel)
 - **Campaign & loop modes** — schedule repeating runs at configurable intervals
 - **Strategy mode** — `safe` / `balanced` / `aggressive` profiles that decide which actions to take
+- **Feature toggles** — granular control: enable/disable tasks, badges, faucet, crates, mint scan, burn, stake, mesh, receive per run
+- **Fast mode** — strip all human-like delays with `--fast` for maximum speed
 
 ### Chain Actions
 - **TX grind** — generate transaction volume on the testnet
@@ -70,23 +72,25 @@ npm start
 - **Receive quest & TX mesh** — coordinate inbound transfers and mesh transaction patterns
 - **Burn & Stake DACC** — execute burn and staking operations
 - **NFT minting** — scan for eligible ranks and batch-mint across accounts
+- **Mint scan with retry** — resilient rank scanning with configurable retries
 
 ### Session Management
-- **Wallet-auth login** — refresh sessions via wallet signature
+- **Wallet-auth login** — refresh sessions via wallet signature (no SIWE needed)
 - **Cookie/CSRF support** — direct session injection for accounts
 - **Fleet-wide refresh** — `wallet-login-all` to refresh every account before a run
 
 ### Monitoring & Reporting
 - **Account status** — detailed single-account status with optional JSON output
 - **Fleet summary** — compact multi-account dashboard via `status-all`
+- **Live progress dashboard** — real-time account status icons during multi-account runs (✓ done, ✗ failed, ▶ running, ○ queued)
 - **Tracking snapshots** — record and compare account state over time
 - **Faucet loop** — automated faucet claims with configurable duration and interval
+- **Step tracking** — visual progress bars and step-by-step execution reports
 
 ### Proxy Support
 - **Rotating proxy pool** — assign proxies round-robin across accounts
 - **Per-account overrides** — pin specific accounts to fixed proxies
 - **Health-check failover** — auto-detect dead proxies and failover to healthy ones
-- **Cooldown management** — failed proxies are temporarily excluded
 
 ---
 
@@ -96,7 +100,7 @@ npm start
 
 | Command | Description |
 |---|---|
-| `npm start` | Open the interactive TUI launcher |
+| `npm start` | Open the interactive TUI launcher with toggle menus |
 | `run --account <name>` | Run automation for a single account |
 | `run-all` | Run automation for all configured accounts |
 | `status --account <name>` | Show account status (add `--json` for JSON) |
@@ -144,7 +148,6 @@ npm start
 | `track --account <name>` | Track account state |
 | `track-all` | Track all accounts |
 | `human-status --account <name> --json` | Human-readable status output |
-| `clear-safety --account <name>` | Clear safety/lock state |
 | `manual` | Open the manual command menu |
 | `setup --account <name> --private-key <key>` | Create/update account config from CLI |
 
@@ -166,9 +169,10 @@ npm start
 | `--profile <name>` | Strategy profile |
 | `--rank-key <key>` | NFT rank target |
 | `--duration-hours <n>` | Faucet loop duration |
+| `--concurrency <n>` | Parallel workers for multi-account runs (1–10) |
 | `--quiet` | Reduce output noise |
 | `--json` | Machine-readable JSON output |
-| `--fast` | Faster execution where supported |
+| `--fast` | Strip human delays for maximum speed |
 
 ---
 
@@ -270,16 +274,15 @@ Enable proxy rotation for multi-account runs by adding an `addons.proxies` block
 dac-inception-bot-v3/
 ├── src/
 │   ├── addons/          # Proxy rotation and add-on modules
-│   ├── api/             # HTTP client, endpoints, cache, retry logic
+│   ├── api/             # HTTP client, endpoints, retry logic
 │   ├── auth/            # Session management and wallet-auth
-│   ├── chain/           # Provider, wallet, exchange, NFT, transfers
+│   ├── chain/           # Provider, wallet
 │   ├── cli/             # Command entrypoints, args, prompts
 │   ├── config/          # Config paths, account helpers, secret handling
-│   ├── domain/          # Status, summary, strategy, minting, tasks
+│   ├── domain/          # Status, summary, features
 │   ├── orchestration/   # Multi-account runs, campaigns, tracking
-│   ├── tui/             # Terminal UI: renderer, panels, menus, themes
+│   ├── tui/             # Terminal UI: renderer, panels, menus, themes, tracker
 │   ├── utils/           # Shared utilities
-│   ├── legacy/          # Compatibility runtime for unmigrated flows
 │   └── index.js         # Package entry
 ├── tests/               # Test suite
 ├── docs/                # Extended documentation
@@ -343,7 +346,6 @@ The test suite covers:
 
 - Endpoint timeout fallback behavior
 - Argument validation and parsing
-- Cache invalidation logic
 - Session merge behavior
 - Status normalization
 - Summary rendering and formatting
@@ -352,6 +354,8 @@ The test suite covers:
 - Strategy no-double-run safety
 - Orchestration continuation after account failure
 - Secret file permission enforcement
+- Fast mode feature toggle
+- Concurrency clamping and validation
 
 ---
 
@@ -375,6 +379,8 @@ The test suite covers:
 | Values show `?` | The bot honestly reports unknown/missing data — refresh or re-authenticate |
 | One account fails during `run-all` | Expected — the bot continues and reports failures in the summary |
 | TUI doesn't render properly | Ensure you're using a real interactive terminal (TTY required) |
+| Slow execution | Use `--fast` flag to strip all human delays |
+| Too many accounts | Use `--concurrency` to control parallel workers (default: 1, max: 10) |
 
 For more details, see [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 

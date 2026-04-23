@@ -460,7 +460,7 @@ async function runInteractiveLauncher(context, args = {}) {
           else if (tool === 'mint-scan') { const rows = await context.bot.getMintableRanks(); console.log(JSON.stringify(rows, null, 2)); }
           else if (tool === 'mint-all') { const result = await context.bot.mintAllEligibleRanks(); console.log(JSON.stringify(result, null, 2)); }
           else if (tool === 'track') { const result = await context.bot.snapshotTracking(); console.log(JSON.stringify(result, null, 2)); }
-          else if (tool === 'campaign') { const profile = (await chooseProfile((q) => prompt(q))) || 'balanced'; console.log(JSON.stringify(await context.bot.runCampaign({ loops: 1, strategyProfile: profile, intervalSeconds: 0 }), null, 2)); }
+          else if (tool === 'campaign') { const profile = (await chooseProfile((q) => prompt(q))) || 'balanced'; console.log(JSON.stringify(await context.bot.runCampaign({ loops: 1, strategyProfile: profile, intervalMinutes: 0 }), null, 2)); }
           else if (tool === 'faucet-loop') { const result = await runFaucetLoop(context.bot, { durationHours: 24, intervalMinutes: 60 }); console.log(JSON.stringify(result, null, 2)); }
           if (tracker.steps.length > 0) console.log(`\n${tracker.render()}\n`);
         }

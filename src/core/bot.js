@@ -309,7 +309,7 @@ class DACBot {
     const appConfig = loadAppConfig();
     const saved = this.accountName && appConfig.accounts[this.accountName]
       ? appConfig.accounts[this.accountName]
-      : (fs.existsSync(currentSessionFile()) ? readJson(currentSessionFile(), {}) : {});
+      : {};
     const accounts = appConfig.accounts || {};
     this.accountConfig = this.accountName && accounts[this.accountName] ? accounts[this.accountName] : {};
     this.proxyRotation = proxyRotation || null;
@@ -320,14 +320,14 @@ class DACBot {
       }
     }
 
-    this.privateKey = privateKey || this.accountConfig.privateKey || saved.privateKey || null;
+    this.privateKey = privateKey || this.accountConfig.privateKey || null;
     this.walletInitError = null;
     this.wallet = null;
     if (this.privateKey) {
       try { this.wallet = new ethers.Wallet(this.privateKey, this.provider); }
       catch (error) { this.walletInitError = error; }
     }
-    this.walletAddress = this.wallet?.address || deriveWalletAddress(this.privateKey) || this.accountConfig.wallet || saved.wallet || null;
+    this.walletAddress = this.wallet?.address || deriveWalletAddress(this.privateKey) || this.accountConfig.wallet || null;
     const proxyAssignment = resolveAccountProxy(this.walletAddress || this.accountName, { accountConfig: this.accountConfig, proxy, proxyRotation: this.proxyRotation });
     this.proxy = proxyAssignment.proxy;
     this.proxySource = proxyAssignment.source;
@@ -339,8 +339,8 @@ class DACBot {
       throw new Error(`Account ${this.accountName || 'unknown'} has invalid private key: ${reason}`);
     }
 
-    const sessionCookies = cookies || this.accountConfig.cookies || saved.cookies || null;
-    const sessionCsrf = csrf || this.accountConfig.csrf || saved.csrf || null;
+    const sessionCookies = cookies || this.accountConfig.cookies || null;
+    const sessionCsrf = csrf || this.accountConfig.csrf || null;
     this.session = { ...this.session, cookies: '', csrf: '', cookieHeader: '' };
     if (sessionCookies && sessionCsrf) this.setSession(sessionCookies, sessionCsrf, false);
     this.buildDefaultHeaders = buildDefaultHeaders;
@@ -489,8 +489,9 @@ class DACBot {
   }
 
   createChildWallets(count = 3) {
+    const safeCount = Math.max(1, Math.min(Number.isFinite(Number(count)) ? Math.trunc(Number(count)) : 3, 100));
     const wallets = [];
-    for (let i = 0; i < count; i += 1) { const wallet = ethers.Wallet.createRandom(); wallets.push({ address: wallet.address, privateKey: wallet.privateKey, mnemonic: wallet.mnemonic?.phrase || null }); }
+    for (let i = 0; i < safeCount; i += 1) { const wallet = ethers.Wallet.createRandom(); wallets.push({ address: wallet.address, privateKey: wallet.privateKey, mnemonic: wallet.mnemonic?.phrase || null }); }
     const allChildWallets = readJson(CHILD_WALLETS_FILE, {});
     allChildWallets[this.accountName || 'default'] = { createdAt: new Date().toISOString(), wallets };
     writeJson(CHILD_WALLETS_FILE, allChildWallets);
@@ -574,7 +575,7 @@ class DACBot {
       const gasCost = estimateTransferGasCost(feeData, gasLimit);
       const requiredWei = amountWei + gasCost;
       const balance = await this.provider.getBalance(peerWallet.address);
-      if (balance < requiredWei) { const topUp = requiredWei - balance; const fundTx = await this.wallet.sendTransaction({ to: peerWallet.address, value: topUp }); await waitForTxReceipt(this.provider, fundTx.hash); this.log(`  Seeded peer ${peer.name} (${shortAddr(peerWallet.address)}) with ${fmtNum(ethers.formatEther(topUp))} DACC`); }
+      if (balance < requiredWei) { const topUp = requiredWei - balance; const fundRequest = await buildLegacyTransferRequest(this.wallet, this.provider, { to: peerWallet.address, value: topUp }); const fundTx = await this.wallet.sendTransaction(fundRequest); await waitForTxReceipt(this.provider, fundTx.hash); this.log(`  Seeded peer ${peer.name} (${shortAddr(peerWallet.address)}) with ${fmtNum(ethers.formatEther(topUp))} DACC`); }
       const peerRequest = await buildLegacyTransferRequest(peerWallet, this.provider, { to: this.wallet.address, value: amountWei, gasLimit });
       const tx = await peerWallet.sendTransaction(peerRequest);
       await waitForTxReceipt(this.provider, tx.hash);
@@ -818,7 +819,7 @@ class DACBot {
   }
 
   async runCampaign(config = {}) {
-    const campaign = { name: config.name || 'default-campaign', loops: config.loops || 1, intervalSeconds: config.intervalSeconds || 0, strategyProfile: config.strategyProfile || DEFAULT_PROFILE, actions: [] };
+    const campaign = { name: config.name || 'default-campaign', loops: config.loops || 1, intervalMinutes: config.intervalMinutes || 0, strategyProfile: config.strategyProfile || DEFAULT_PROFILE, actions: [] };
     for (let i = 0; i < campaign.loops; i += 1) {
       this.log(`\n=== Campaign loop ${i + 1}/${campaign.loops} ===`);
       const before = await this.status();
@@ -828,7 +829,7 @@ class DACBot {
       const tracking = await this.snapshotTracking();
       const after = await this.status();
       campaign.actions.push({ loop: i + 1, before: { qe: before.qe, rank: before.rank, txCount: before.txCount }, after: { qe: after.qe, rank: after.rank, txCount: after.txCount }, strategyPlan, minted, tracking });
-      if (i < campaign.loops - 1 && campaign.intervalSeconds > 0 && !this.fastMode) { this.log(`Sleeping ${campaign.intervalSeconds}s before next campaign loop...`); await sleep(campaign.intervalSeconds * 1000); }
+      if (i < campaign.loops - 1 && campaign.intervalMinutes > 0 && !this.fastMode) { this.log(`Sleeping ${campaign.intervalMinutes}m before next campaign loop...`); await sleep(campaign.intervalMinutes * 60 * 1000); }
     }
     const allCampaigns = readJson(CAMPAIGN_FILE, {});
     allCampaigns[this.accountName || 'default'] = campaign;
@@ -927,7 +928,7 @@ class DACBot {
     });
 
     this.log(`\n  DAC INCEPTION BOT -- ${new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC')}`);
-    this.log(`  QE=${before.qe ?? '?'} | DACC=${before.dacc ?? '?'} | #${before.rank ?? '?'} | ${before.badges ?? 0}/${resolveBadgeTotal(before.badgeTotal, 1)} badges | ${before.streak ?? 0}d streak | ${before.multiplier ?? 1}x`);
+    this.log(`  QE=${before.qe ?? '?'} | DACC=${before.dacc ?? '?'} | #${before.rank ?? '?'} | ${before.badges ?? 0}/${resolveBadgeTotal(before.badgeTotal)} badges | ${before.streak ?? 0}d streak | ${before.multiplier ?? 1}x`);
     this.log(`  Wallet: ${before.wallet || '-'} | tx_count=${before.txCount ?? 0}`);
     this.log(`  Network: blk=${network.block_number ?? '?'} tps=${network.tps ?? '?'} bt=${network.block_time ?? '?'}`);
     if (!before.faucetAvailable) this.log(`  Faucet cooldown: ${humanCooldown(before.faucetCooldownSeconds || 0)}`);
