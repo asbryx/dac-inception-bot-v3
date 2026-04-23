@@ -1,34 +1,17 @@
 {
-  "accounts": [
-    {
-      "name": "account1",
-      "walletPrivateKey": "0xYOUR_PRIVATE_KEY_HERE",
-      "address": "0xYOUR_WALLET_ADDRESS",
-      "session": {
-        "id": "dac-session-id-placeholder",
-        "cookie": "sessionid=placeholder; csrftoken=placeholder",
-        "csrfToken": "placeholder",
-        "walletAddress": "0xYOUR_WALLET_ADDRESS",
-        "updatedAt": "2025-01-01T00:00:00.000Z"
-      }
+  "default": "main01",
+  "accounts": {
+    "main01": {
+      "privateKey": "0xYOUR_PRIVATE_KEY_HERE",
+      "wallet": "0xYOUR_WALLET_ADDRESS",
+      "cookies": "ref_code=placeholder; csrftoken=placeholder; sessionid=placeholder",
+      "csrf": "placeholder",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
     }
-  ],
+  },
   "strategy": {
     "intervalSeconds": 60,
     "maxDailyMints": 20,
     "minRankIntervalSeconds": 5
-  },
-  "addons": {
-    "proxies": {
-      "enabled": false,
-      "list": [],
-      "failover": {
-        "enabled": false,
-        "healthCheckPath": "/api/inception/network/",
-        "healthCheckTimeoutMs": 8000,
-        "cooldownMs": 300000,
-        "maxAttemptsPerRequest": 3
-      }
-    }
   }
 }

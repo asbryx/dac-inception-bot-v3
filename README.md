@@ -26,8 +26,10 @@ DAC Inception Bot v3 is a ground-up rebuild of the original DAC bot, designed fo
 | **Fully independent** | No external legacy dependencies — all logic is self-contained in the repo |
 | **Multi-account first** | Built from the ground up for fleet management with per-account proxy rotation |
 | **Resilient orchestration** | Multi-account runs continue through individual failures and report a summary at the end |
-| **Interactive TUI** | Visual launcher with themed panels, toggle menus, and status dashboards |
+| **Interactive TUI** | Visual launcher with themed panels, **toggle menus**, **live dashboards**, and **step tracking** |
 | **Strategy profiles** | Choose `safe`, `balanced`, or `aggressive` automation profiles |
+| **Fast mode** | Strip all human-like delays with `--fast` for maximum throughput |
+| **Concurrent workers** | Run up to 10 accounts in parallel with `--concurrency` |
 
 ---
 
@@ -41,8 +43,9 @@ cd dac-inception-bot-v3
 # Install dependencies
 npm install
 
-# Create your config
+# Create your configs
 cp dac.config.example.json dac.config.json
+cp proxies.config.example.json proxies.config.json   # optional
 
 # Launch the interactive menu
 npm start
@@ -59,13 +62,49 @@ npm start
 
 ## Features
 
+### Interactive TUI Launcher (`npm start`)
+
+The main launcher is a fully interactive terminal UI. No more memorizing commands.
+
+**Main Menu — Arrow-key navigation**
+- Choose between single-account, multi-account, or utility modes
+- Select any command with ↑↓ arrows and Enter
+
+**Automation Toggle Menu — 10 granular controls**
+Before running automation, you get a toggle panel where you choose exactly what to execute:
+
+| # | Feature | Default |
+|---|---|---|
+| 1 | Daily Tasks | ✓ ON |
+| 2 | Badges | ✓ ON |
+| 3 | Faucet Claim | ✓ ON |
+| 4 | Strategy Mode | ✓ ON |
+| 5 | TX Grind | ✗ OFF |
+| 6 | Child Wallets | ✗ OFF |
+| 7 | Receive Quest | ✗ OFF |
+| 8 | TX Mesh | ✗ OFF |
+| 9 | Burn & Stake | ✗ OFF |
+| 10 | Mint Scan | ✗ OFF |
+
+**Controls:** `Space` to toggle, `Enter` to confirm, `a` to enable all, `n` to disable all.
+
+**Live Progress Dashboard**
+During multi-account runs, a real-time dashboard shows:
+- Per-account status: `✓` done / `✗` failed / `▶` running / `○` queued
+- Current step per account (e.g., `faucet`, `tasks`, `mintScan`)
+- Assigned proxy label and health indicator
+- Fleet progress: `Completed: 8/10 | Failed: 1 | Running: 1`
+
+The TUI throttles renders to ~300ms to keep CPU usage low even under heavy concurrency.
+
 ### Automation & Orchestration
 - **Single-account automation** — run tasks for one wallet with `run`
 - **Multi-account orchestration** — run all configured wallets concurrently with `run-all` (up to 10 parallel)
 - **Campaign & loop modes** — schedule repeating runs at configurable intervals
 - **Strategy mode** — `safe` / `balanced` / `aggressive` profiles that decide which actions to take
-- **Feature toggles** — interactive toggle menu (Space to enable/disable, Enter to confirm) for granular control per run
-- **Fast mode** — strip all human-like delays with `--fast` for maximum speed
+- **Feature toggles** — interactive toggle menu for granular control per run
+- **Fast mode** — strip all human-like delays, retry backoffs, and tx polling sleeps with `--fast`
+- **Concurrency control** — tune parallel workers with `--concurrency <1-10>`
 
 ### Chain Actions
 - **TX grind** — generate transaction volume on the testnet
@@ -83,15 +122,16 @@ npm start
 ### Monitoring & Reporting
 - **Account status** — detailed single-account status with optional JSON output
 - **Fleet summary** — compact multi-account dashboard via `status-all`
-- **Live progress dashboard** — real-time account status icons during multi-account runs (✓ done, ✗ failed, ▶ running, ○ queued)
+- **Live progress dashboard** — real-time account status icons during multi-account runs
 - **Proxy status per account** — live TUI shows assigned proxy label and health next to each account row
 - **Tracking snapshots** — record and compare account state over time
 - **Faucet loop** — automated faucet claims with configurable duration and interval
 - **Step tracking** — visual progress bars and step-by-step execution reports
 
 ### Proxy Support
+- **Dedicated proxy file** — `proxies.config.json` lives outside `dac.config.json` so auth flows never overwrite it
 - **Rotating proxy pool** — assign proxies round-robin across accounts
-- **Per-account overrides** — pin specific accounts to fixed proxies
+- **Per-account overrides** — pin specific accounts to fixed proxies via `dac.config.json`
 - **Health-check failover** — auto-detect dead proxies and failover to healthy ones
 
 ---
@@ -180,10 +220,11 @@ npm start
 
 ## Configuration
 
-The bot reads its config from `dac.config.json` in the project root. Copy the example to get started:
+The bot reads account data from `dac.config.json` and proxy settings from `proxies.config.json`. Keeping them separate prevents auth flows from accidentally wiping your proxy list.
 
 ```bash
 cp dac.config.example.json dac.config.json
+cp proxies.config.example.json proxies.config.json   # if using proxies
 ```
 
 ### Basic Multi-Account Setup
@@ -233,33 +274,30 @@ cp dac.config.example.json dac.config.json
 | `accounts.<name>.cookies` | No | DAC session cookie string |
 | `accounts.<name>.csrf` | No | CSRF token |
 | `accounts.<name>.proxy` | No | Fixed proxy override for this account |
-| `addons.proxies` | No | Shared rotating proxy pool config |
 
-### Proxy Rotation
+### Proxy Configuration (`proxies.config.json`)
 
-Enable proxy rotation for multi-account runs by adding an `addons.proxies` block:
+**Recommended:** Keep proxies in their own file so wallet-auth flows never touch them.
 
 ```json
 {
-  "addons": {
-    "proxies": {
-      "enabled": true,
-      "list": [
-        "http://user:pass@proxy-01.example:8000",
-        "http://user:pass@proxy-02.example:8000",
-        "http://user:pass@proxy-03.example:8000"
-      ],
-      "failover": {
-        "enabled": true,
-        "healthCheckPath": "/api/inception/network/",
-        "healthCheckTimeoutMs": 8000,
-        "cooldownMs": 300000,
-        "maxAttemptsPerRequest": 3
-      }
-    }
+  "enabled": true,
+  "list": [
+    "http://user:pass@proxy-01.example:8000",
+    "http://user:pass@proxy-02.example:8000",
+    "http://user:pass@proxy-03.example:8000"
+  ],
+  "failover": {
+    "enabled": true,
+    "healthCheckPath": "/api/inception/network/",
+    "healthCheckTimeoutMs": 8000,
+    "cooldownMs": 300000,
+    "maxAttemptsPerRequest": 3
   }
 }
 ```
+
+**Fallback:** If `proxies.config.json` doesn't exist, the bot falls back to `addons.proxies` inside `dac.config.json`.
 
 **How proxy rotation works:**
 
@@ -289,6 +327,7 @@ dac-inception-bot-v3/
 ├── tests/               # Test suite
 ├── docs/                # Extended documentation
 ├── dac.config.example.json
+├── proxies.config.example.json
 └── package.json
 ```
 
@@ -315,6 +354,13 @@ node src/cli/main.js status-all
 ```bash
 node src/cli/main.js wallet-login-all
 node src/cli/main.js run-all
+```
+
+### Fleet — Fast Concurrent Run
+
+```bash
+# Run all accounts with max speed and 5 parallel workers
+node src/cli/main.js run-all --fast --concurrency 5
 ```
 
 ### Minting Workflow
@@ -358,18 +404,20 @@ The test suite covers:
 - Secret file permission enforcement
 - Fast mode feature toggle
 - Concurrency clamping and validation
+- Proxy health-check rotation logic
 
 ---
 
 ## Security
 
-> **Never commit `dac.config.json` to version control.**
+> **Never commit config files containing secrets.**
 
-- `.gitignore` already excludes `dac.config.json` and `.env`
+- `.gitignore` excludes `dac.config.json`, `proxies.config.json`, `session-*.json`, and `.env`
 - Use **testnet wallets only** — never use wallets holding real assets
-- Treat private keys, cookies, and CSRF tokens as secrets
+- Treat private keys, cookies, CSRF tokens, and proxy credentials as secrets
 - Example config files contain only placeholders
 - The bot enforces file permissions on secret storage
+- Proxy credentials live in `proxies.config.json`, isolated from auth-driven config updates
 
 ---
 
@@ -383,6 +431,8 @@ The test suite covers:
 | TUI doesn't render properly | Ensure you're using a real interactive terminal (TTY required) |
 | Slow execution | Use `--fast` flag to strip all human delays |
 | Too many accounts | Use `--concurrency` to control parallel workers (default: 1, max: 10) |
+| Proxies disappearing after auth | Move them to `proxies.config.json` instead of `dac.config.json` |
+| Config parse errors on Windows | Save files as UTF-8 without BOM (the bot strips BOMs, but clean files are safer) |
 
 For more details, see [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
