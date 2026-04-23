@@ -19,11 +19,9 @@ const FEATURE_REGISTRY = [
   // ── Badges ──
   { id: 'badge_claim',   label: 'Claim Badges',       category: 'badges', default: true,  description: 'Claim all eligible backend badges' },
 
-  // ── Faucet ──
-  { id: 'faucet_claim',  label: 'Claim Faucet',       category: 'faucet', default: false, description: 'Request testnet DACC from faucet' },
-
-  // ── Crates ──
-  { id: 'crate_open',    label: 'Open Crates',        category: 'crates', default: false, description: 'Open available reward crates' },
+  // ── Rewards ──
+  { id: 'faucet_claim',  label: 'Claim Faucet',       category: 'rewards', default: false, description: 'Request testnet DACC from faucet' },
+  { id: 'crate_open',    label: 'Open Crates',        category: 'rewards', default: false, description: 'Open available reward crates' },
 
   // ── Minting ──
   { id: 'mint_scan',     label: 'Scan Mintable',      category: 'minting', default: true,  description: 'Check which ranks are mintable on-chain' },
@@ -42,11 +40,10 @@ const FEATURE_REGISTRY = [
 const CATEGORIES = {
   tasks:    { label: 'Social Tasks',   order: 1 },
   badges:   { label: 'Badges',         order: 2 },
-  faucet:   { label: 'Faucet',         order: 3 },
-  crates:   { label: 'Crates',         order: 4 },
-  minting:  { label: 'Minting',        order: 5 },
-  chain:    { label: 'Chain / TX',     order: 6 },
-  strategy: { label: 'Strategy',       order: 7 },
+  rewards:  { label: 'Rewards',        order: 3 },
+  minting:  { label: 'Minting',        order: 4 },
+  chain:    { label: 'Chain / TX',     order: 5 },
+  strategy: { label: 'Strategy',       order: 6 },
 };
 
 function ensureDir(dir) { fs.mkdirSync(dir, { recursive: true }); }
