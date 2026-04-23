@@ -219,7 +219,7 @@ function estimateTransferGasCost(feeData, gasLimit = 21000n) {
 }
 
 function humanFeaturesDefaults() { return { enabled: true, rotateUserAgent: true, jitterVariancePct: 20 }; }
-function fastHumanFeaturesConfig() { return { enabled: true, rotateUserAgent: false, jitterVariancePct: 0 }; }
+function fastHumanFeaturesConfig() { return { enabled: false, rotateUserAgent: false, jitterVariancePct: 0 }; }
 function humanFeaturesFile() { return path.join(CONFIG_DIR, 'human-features.json'); }
 function loadHumanFeatures() { return { ...humanFeaturesDefaults(), ...(readJson(humanFeaturesFile(), {}) || {}) }; }
 function saveHumanFeatures(config) { writeJson(humanFeaturesFile(), { ...humanFeaturesDefaults(), ...config }); }
