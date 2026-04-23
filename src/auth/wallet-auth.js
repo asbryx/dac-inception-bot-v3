@@ -30,6 +30,11 @@ async function walletLogin(bot, { force = false, baseUrl }) {
     }
     if (!newCookies.length) return;
     cookieString = mergeCookieStrings(cookieString, newCookies.join('; '));
+    // Preserve csrf token if server didn't send one in Set-Cookie
+    const parsedAfter = parseCookieString(cookieString);
+    if (!parsedAfter.csrftoken && csrf) {
+      cookieString = mergeCookieStrings(cookieString, `csrftoken=${csrf}`);
+    }
     cookieHeader = buildCookieHeader(cookieString);
     const parsedCsrf = parseCookieString(cookieString).csrftoken;
     if (parsedCsrf) csrf = parsedCsrf;
@@ -37,6 +42,7 @@ async function walletLogin(bot, { force = false, baseUrl }) {
 
   if (!csrf) {
     const bootstrapCsrf = '00000000000000000000000000000000';
+    csrf = bootstrapCsrf;
     const bootstrapCookies = mergeCookieStrings(cookieString, `csrftoken=${bootstrapCsrf}`);
     const bootstrapResponse = await bot.fetchWithSession(`${baseUrl}/api/auth/wallet/`, {
       method: 'POST',
