@@ -396,7 +396,10 @@ class DACBot {
   persistSession(cookieString, csrf) {
     const payload = { cookies: cookieString, csrf, updated: new Date().toISOString() };
     if (this.accountName) { upsertAccount(this.accountName, payload, { makeDefault: true }); return; }
-    writeJson(currentSessionFile(), payload);
+    // If no account name, still don't overwrite the whole config file — write to a sidecar session file instead
+    const sessionFile = path.join(CONFIG_DIR, 'session-fallback.json');
+    ensureDir(CONFIG_DIR);
+    writeJson(sessionFile, payload);
   }
 
   setSession(cookieString, csrf, persist = true) {

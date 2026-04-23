@@ -6,9 +6,14 @@ const APP_CONFIG_FILE = process.env.DAC_CONFIG_PATH
   ? path.resolve(process.env.DAC_CONFIG_PATH)
   : path.join(process.cwd(), 'dac.config.json');
 
+const PROXIES_CONFIG_FILE = process.env.DAC_PROXIES_PATH
+  ? path.resolve(process.env.DAC_PROXIES_PATH)
+  : path.join(process.cwd(), 'proxies.config.json');
+
 const paths = {
   configDir: CONFIG_DIR,
   appConfigFile: APP_CONFIG_FILE,
+  proxiesConfigFile: PROXIES_CONFIG_FILE,
   strategyFile: path.join(CONFIG_DIR, 'strategy.json'),
   mintCacheFile: path.join(CONFIG_DIR, 'mint-status.json'),
   trackingFile: path.join(CONFIG_DIR, 'tracking.json'),

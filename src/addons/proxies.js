@@ -1,4 +1,6 @@
 const { ProxyAgent } = require('undici');
+const { paths } = require('../config/paths');
+const { readJson } = require('../config/files');
 
 const dispatcherCache = new Map();
 
@@ -71,6 +73,13 @@ function normalizeProxySettings(raw) {
 }
 
 function loadProxySettings(config = null) {
+  // 1. Try dedicated proxies.config.json first (auth-safe, never overwritten)
+  const dedicated = readJson(paths.proxiesConfigFile, null);
+  if (dedicated && (Array.isArray(dedicated) || (dedicated && typeof dedicated === 'object' && Array.isArray(dedicated.list)))) {
+    return normalizeProxySettings(dedicated);
+  }
+
+  // 2. Fallback to dac.config.json addons
   const loadedConfig = config || require('../config/accounts').loadAccountsConfig();
   return normalizeProxySettings(loadedConfig.addons?.proxies);
 }
