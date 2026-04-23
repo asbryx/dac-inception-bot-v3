@@ -206,6 +206,30 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
   const totalAccounts = names.length;
   const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96, accountNames: names });
 
+  // Throttle visual renders so fast mode doesn't spend all its time clearing the terminal
+  let renderPending = false;
+  let lastRender = 0;
+  const RENDER_INTERVAL_MS = args.fast ? 300 : 150;
+  function throttledRender() {
+    if (!useVisual) return;
+    const now = Date.now();
+    if (now - lastRender < RENDER_INTERVAL_MS) {
+      if (!renderPending) {
+        renderPending = true;
+        setTimeout(() => {
+          renderPending = false;
+          lastRender = Date.now();
+          console.clear();
+          process.stdout.write(`${progressMap.render()}\n`);
+        }, RENDER_INTERVAL_MS - (now - lastRender));
+      }
+      return;
+    }
+    lastRender = now;
+    console.clear();
+    process.stdout.write(`${progressMap.render()}\n`);
+  }
+
   const result = await runAutomationAll({
     contextFactory,
     options,
@@ -215,8 +239,7 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
       progressMap.createTracker(account, `Automation — ${account}`);
       progressMap.setCurrent(account);
       if (useVisual) {
-        console.clear();
-        process.stdout.write(`${progressMap.render()}\n`);
+        throttledRender();
       } else if (!quiet) {
         console.log(renderAccountRow({ account, index, total, step: 'starting', message: '' }));
       }
@@ -234,8 +257,7 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
       }
       progressMap.setCurrent(null);
       if (useVisual) {
-        console.clear();
-        process.stdout.write(`${progressMap.render()}\n`);
+        throttledRender();
       } else if (!quiet) {
         console.log(renderAccountRow({ account, index, total, ok, error }));
       }
@@ -249,8 +271,7 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
       }
       progressMap.setCurrent(account);
       if (useVisual) {
-        console.clear();
-        process.stdout.write(`${progressMap.render()}\n`);
+        throttledRender();
       } else if (!quiet && step && message) {
         console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(step, C.primary)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
       }
@@ -387,6 +408,27 @@ async function runInteractiveLauncher(context, args = {}) {
         const config = loadAccountsConfig();
         const totalAccounts = Object.keys(config.accounts).length;
 
+        // Throttle banner renders in fast mode
+        let faucetRenderPending = false;
+        let faucetLastRender = 0;
+        const FAUCET_RENDER_MS = args.fast ? 400 : 200;
+        function throttledFaucetRender(currentAccount) {
+          const now = Date.now();
+          if (now - faucetLastRender < FAUCET_RENDER_MS) {
+            if (!faucetRenderPending) {
+              faucetRenderPending = true;
+              setTimeout(() => {
+                faucetRenderPending = false;
+                faucetLastRender = Date.now();
+                renderFaucetLoopBanner(progressMap, totalAccounts, currentAccount);
+              }, FAUCET_RENDER_MS - (now - faucetLastRender));
+            }
+            return;
+          }
+          faucetLastRender = now;
+          renderFaucetLoopBanner(progressMap, totalAccounts, currentAccount);
+        }
+
         const result = await runFaucetLoopAll({
           contextFactory,
           durationHours,
@@ -395,7 +437,7 @@ async function runInteractiveLauncher(context, args = {}) {
             ? ({ account, cycle, status, detail }) => {
                 const p = progressMap.get(account) || {};
                 progressMap.set(account, { ...p, cycle, status, detail });
-                renderFaucetLoopBanner(progressMap, totalAccounts, account);
+                throttledFaucetRender(account);
               }
             : ({ account, cycle, status, detail }) => {
                 if (!args.quiet) console.log(`  ${color(S.dot, C.muted)} ${color(account, C.label)} cycle ${cycle} ${color(status, C.primary)} ${detail ? color(`| ${detail}`, C.muted) : ''}`);

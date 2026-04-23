@@ -248,7 +248,7 @@ function formatErrorMessage(error) {
   return joined.length > 220 ? `${joined.slice(0, 217)}...` : joined;
 }
 
-async function waitForTxReceipt(provider, hash, { attempts = 60, delayMs = 1000 } = {}) {
+async function waitForTxReceipt(provider, hash, { attempts = 60, delayMs = 200 } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const receipt = await provider.getTransactionReceipt(hash);
     if (receipt) return receipt;
@@ -403,10 +403,10 @@ class DACBot {
     }
   }
 
-  async humanDelay(baseMs, variancePct = null) { if (!this.humanMode) return; const pct = variancePct ?? this.humanFeatures.jitterVariancePct ?? 40; await sleep(jitter(baseMs, pct)); }
+  async humanDelay(baseMs, variancePct = null) { if (!this.humanMode || this.fastMode) return; const pct = variancePct ?? this.humanFeatures.jitterVariancePct ?? 40; await sleep(jitter(baseMs, pct)); }
 
   async humanPause(kind = 'default') {
-    if (!this.humanMode) return;
+    if (!this.humanMode || this.fastMode) return;
     const ranges = { api: [150, 500], task: [200, 700], crate: [400, 1200], badge: [100, 350], tx: [400, 1200], scan: [50, 180], mint: [300, 1000], session: [250, 700], default: [150, 500] };
     const [min, max] = ranges[kind] || ranges.default;
     await sleep(jitterRange(min, max));

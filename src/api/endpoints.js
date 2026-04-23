@@ -64,7 +64,7 @@ async function fetchApiPayload(bot, apiPath, { method = 'GET', body } = {}) {
   const isRead = method === 'GET' && isReadOnlyApiPath(apiPath);
   try {
     if (isRead) {
-      return await retryRead(() => fetchOnce(bot, apiPath, { method, body }), { retries: 1, backoffMs: 500 });
+      return await retryRead(() => fetchOnce(bot, apiPath, { method, body }), { retries: 1, backoffMs: 500, fastMode: bot.fastMode });
     }
     return await fetchOnce(bot, apiPath, { method, body });
   } catch (error) {
@@ -89,7 +89,7 @@ async function fetchApiPayload(bot, apiPath, { method = 'GET', body } = {}) {
 
 async function api(bot, method, apiPath, body, { retryAuth = true } = {}) {
   await bot.ensureSession(false);
-  if (!isReadOnlyApiPath(apiPath)) await bot.humanPause('api');
+  if (!isReadOnlyApiPath(apiPath) && !bot.fastMode) await bot.humanPause('api');
 
   try {
     const payload = await fetchApiPayload(bot, apiPath, { method, body });
@@ -103,7 +103,7 @@ async function api(bot, method, apiPath, body, { retryAuth = true } = {}) {
       && !classification.rateLimited
     ) {
       bot.log('⚠️  Session invalid or expired, refreshing via wallet auth...');
-      await bot.humanPause('session');
+      if (!bot.fastMode) await bot.humanPause('session');
       await bot.walletLogin(true);
       return api(bot, method, apiPath, body, { retryAuth: false });
     }
