@@ -88,7 +88,6 @@ async function fetchApiPayload(bot, apiPath, { method = 'GET', body } = {}) {
 }
 
 async function api(bot, method, apiPath, body, { retryAuth = true } = {}) {
-  bot.enforceSafety();
   await bot.ensureSession(false);
   if (!isReadOnlyApiPath(apiPath)) await bot.humanPause('api');
 
@@ -110,15 +109,15 @@ async function api(bot, method, apiPath, body, { retryAuth = true } = {}) {
     }
 
     if (classification.challenge) {
-      bot.recordFailure('Challenge/block detected', { challenge: true });
+      bot.log(`  Challenge/block detected (${payload._status || 0})`);
       return payload;
     }
     if (classification.rateLimited) {
-      bot.recordFailure('Rate limited (429)', { challenge: false });
+      bot.log(`  Rate limited (429)`);
       return payload;
     }
     if (classification.blocked) {
-      bot.recordFailure(`Blocked (${payload._status || 0})`, { challenge: false });
+      bot.log(`  Blocked (${payload._status || 0})`);
       return payload;
     }
 

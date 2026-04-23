@@ -14,7 +14,6 @@ const paths = {
   trackingFile: path.join(CONFIG_DIR, 'tracking.json'),
   campaignFile: path.join(CONFIG_DIR, 'campaign.json'),
   childWalletsFile: path.join(CONFIG_DIR, 'child-wallets.json'),
-  safetyFile: path.join(CONFIG_DIR, 'safety.json'),
 };
 
 module.exports = { paths };

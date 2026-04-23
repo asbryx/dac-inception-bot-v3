@@ -90,8 +90,6 @@ function jitterRange(minMs, maxMs) { return Math.round(minMs + Math.random() * (
 function pickUserAgent() { return pickRandom(USER_AGENT_POOL); }
 function isChallengeResponse(text) { const lower = String(text || '').toLowerCase(); return CHALLENGE_PATTERNS.some((needle) => lower.includes(needle)); }
 
-const SAFETY_FILE = path.join(CONFIG_DIR, 'safety.json');
-
 const { normalizeCookieDomain, extractSetCookieParts, mergeCookieStrings, parseSetCookieHeader, parseCookieString, buildCookieHeader } = authSession;
 
 function deriveWalletAddress(privateKey) {
@@ -299,7 +297,6 @@ class DACBot {
     this.baseUrl = BASE_URL;
     this.apiBase = API_BASE;
     this.accountName = resolveDefaultAccountName(account);
-    this.safety = readJson(SAFETY_FILE, null) || { suspendedUntil: null, lastReason: null, failureCount: 0, challengeCount: 0 };
     this.session = { cookies: '', csrf: '', cookieHeader: '', userAgent: pickUserAgent() };
     this.runtimeCache = {
       profile: { value: null, expiresAt: 0, pending: null },
@@ -416,24 +413,6 @@ class DACBot {
   }
 
   rotateUserAgent() { if (!this.humanMode || this.humanFeatures.rotateUserAgent === false) return; this.session.userAgent = pickUserAgent(); }
-  enforceSafety() {
-    if (!this.safety?.suspendedUntil) return false;
-    if (new Date(this.safety.suspendedUntil) > new Date()) {
-      throw new Error(`Safety cooldown active until ${this.safety.suspendedUntil}: ${this.safety.lastReason || 'unknown'}`);
-    }
-    return false;
-  }
-
-  recordFailure(reason, { challenge = false } = {}) {
-    const fc = (this.safety?.failureCount || 0) + 1;
-    const cc = (this.safety?.challengeCount || 0) + (challenge ? 1 : 0);
-    const cooldownSeconds = challenge ? Math.min(3600, 300 * cc) : Math.min(900, 60 * fc);
-    this.safety = { failureCount: fc, challengeCount: cc, lastReason: reason, suspendedUntil: new Date(Date.now() + cooldownSeconds * 1000).toISOString() };
-    writeJson(SAFETY_FILE, this.safety);
-    this.log(`  -- ${reason}; cooldown ${humanCooldown(cooldownSeconds)}`);
-  }
-
-  clearSafety() { this.safety = { suspendedUntil: null, lastReason: null, failureCount: 0, challengeCount: 0 }; writeJson(SAFETY_FILE, this.safety); }
 
   classifyResponse(status, payload, bodyText = '') {
     const text = `${payload?.error || ''} ${payload?.body || ''} ${bodyText || ''}`.trim();

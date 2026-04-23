@@ -92,7 +92,6 @@ Commands:
   wallet-login-all Auth all accounts
   child-wallets   Generate child wallets
   human-status    Show human mode status
-  clear-safety    Reset safety state
 
 Options:
   --account <name>      Named account

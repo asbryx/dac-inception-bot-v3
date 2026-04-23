@@ -5,7 +5,6 @@ function secretFiles() {
   return new Set([
     path.resolve(paths.appConfigFile),
     path.resolve(paths.childWalletsFile),
-    path.resolve(paths.safetyFile),
   ]);
 }
 

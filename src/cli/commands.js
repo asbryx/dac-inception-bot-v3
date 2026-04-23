@@ -318,16 +318,9 @@ async function runCommand(args) {
     return;
   }
 
-  if (command === 'clear-safety') {
-    const bot = createDirectBot(args);
-    bot.clearSafety();
-    console.log(`${color(S.ok, C.success)} Safety state cleared.`);
-    return;
-  }
-
   if (command === 'human-status') {
     const bot = createDirectBot(args);
-    printJson({ humanMode: bot.humanMode, safety: bot.safety || {} });
+    printJson({ humanMode: bot.humanMode });
     return;
   }
 
