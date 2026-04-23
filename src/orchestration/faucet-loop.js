@@ -32,7 +32,7 @@ async function runFaucetLoop(bot, { durationHours = 24, intervalMinutes = 60 } =
   };
 }
 
-async function runFaucetLoopAll({ contextFactory, selected = null, durationHours = 24, intervalMinutes = 60, onStart = null, onComplete = null, onProgress = null } = {}) {
+async function runFaucetLoopAll({ contextFactory, selected = null, durationHours = 24, intervalMinutes = 60, concurrency = 1, onStart = null, onComplete = null, onProgress = null } = {}) {
   const accounts = selected && selected.length ? selected : accountNames();
   const preflight = validateSelectedAccounts(accounts);
   const validAccounts = preflight.rows.filter((row) => row.ok).map((row) => row.accountName);
@@ -54,9 +54,8 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
   let cycle = 0;
   while (Date.now() < until) {
     cycle += 1;
-    for (let index = 0; index < perAccount.length; index += 1) {
-      const entry = perAccount[index];
-      if (Date.now() >= until) break;
+    const processEntry = async (entry, index) => {
+      if (Date.now() >= until) return;
       const timestamp = new Date().toISOString();
       if (typeof onProgress === 'function') onProgress({ account: entry.account, cycle, status: 'running', detail: `cycle ${cycle} attempt ${index + 1}/${perAccount.length}` });
       try {
@@ -67,7 +66,16 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
         entry.runs.push({ cycle, timestamp, ok: false, error: error.message });
         if (typeof onProgress === 'function') onProgress({ account: entry.account, cycle, status: 'failed', detail: error.message });
       }
+    };
+
+    if (concurrency > 1) {
+      await runAcrossAccounts(perAccount, (entry, index) => processEntry(entry, index), { concurrency, action: 'faucet-loop-cycle' });
+    } else {
+      for (let index = 0; index < perAccount.length; index += 1) {
+        await processEntry(perAccount[index], index);
+      }
     }
+
     if (Date.now() >= until) break;
     await sleep(intervalMinutes * 60 * 1000);
   }

@@ -2,7 +2,7 @@ const { accountNames } = require('../config/accounts');
 const { validateSelectedAccounts } = require('../config/preflight');
 const { runAcrossAccounts } = require('./runner');
 
-async function runTrackAll({ contextFactory, selected = null, onStart = null, onComplete = null } = {}) {
+async function runTrackAll({ contextFactory, selected = null, onStart = null, onComplete = null, concurrency = 1 } = {}) {
   const accounts = selected && selected.length ? selected : accountNames();
   const preflight = validateSelectedAccounts(accounts);
   const validAccounts = preflight.rows.filter((row) => row.ok).map((row) => row.accountName);
@@ -14,7 +14,7 @@ async function runTrackAll({ contextFactory, selected = null, onStart = null, on
   const results = await runAcrossAccounts(validAccounts, async (accountName) => {
     const context = await contextFactory(accountName);
     return context.bot.snapshotTracking();
-  }, { onStart, onComplete, concurrency: 1, action: 'track-all' });
+  }, { onStart, onComplete, concurrency, action: 'track-all' });
   return {
     task: 'track-all',
     accounts,

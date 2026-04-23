@@ -202,6 +202,7 @@ async function handleRunAll(args) {
     options,
     accountNames: args.accounts || undefined,
     selected: args.accounts || undefined,
+    concurrency: args.concurrency || 1,
     onStart: ({ account, index, total }) => {
       if (liveProxyDashboard) setProgress(account, `running ${index + 1}/${total}`, 'starting');
       else if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
@@ -299,7 +300,7 @@ async function runCommand(args) {
   if (command === 'wallet-login-all') {
     const proxyRotation = getSharedProxyRotation(args);
     const contextFactory = makeContextFactory(args, proxyRotation);
-    const all = await runStatusAll({ contextFactory, concurrency: 1 });
+    const all = await runStatusAll({ contextFactory, concurrency: args.concurrency || 1 });
     const rows = await Promise.all(all.accounts.map(async (account) => {
       try {
         const context = await contextFactory(account);
@@ -360,6 +361,7 @@ async function runCommand(args) {
       contextFactory: makeContextFactory(args, proxyRotation),
       count: args.txCount,
       amount: args.txAmount,
+      concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
         if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
@@ -390,6 +392,7 @@ async function runCommand(args) {
       contextFactory: makeContextFactory(args, proxyRotation),
       count: args.txCount,
       amount: args.txAmount,
+      concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
         if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
@@ -445,6 +448,7 @@ async function runCommand(args) {
     const proxyRotation = getSharedProxyRotation(args);
     const result = await runMintAllRanksAll({
       contextFactory: makeContextFactory(args, proxyRotation),
+      concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
         if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
@@ -469,6 +473,7 @@ async function runCommand(args) {
     const proxyRotation = getSharedProxyRotation(args);
     const result = await runTrackAll({
       contextFactory: makeContextFactory(args, proxyRotation),
+      concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
         if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
@@ -494,6 +499,7 @@ async function runCommand(args) {
     const result = await runCampaignAll({
       contextFactory: makeContextFactory(args, proxyRotation),
       profile: args.profile || 'balanced',
+      concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
         if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
@@ -539,6 +545,7 @@ async function runCommand(args) {
       contextFactory: makeContextFactory(args, proxyRotation),
       durationHours: args.durationHours || 24,
       intervalMinutes: args.interval || 60,
+      concurrency: args.concurrency || 1,
       onProgress: liveProxyDashboard ? ({ account, status, detail }) => setProgress(account, status, detail) : null,
     });
     printStructured(args, result, (payload) => [

@@ -722,7 +722,7 @@ class DACBot {
         lastError = error;
         try { const scan = await this.getMintableRanks(); const row = scan.find((item) => item.badgeKey === rankKey); if (row?.minted) return { ok: true, attempt, rankKey, recovered: true, alreadyMinted: true, rankId: row.rankId }; if (row && !row.backendReady && /already minted/i.test(row.backendError || '')) return { ok: true, attempt, rankKey, recovered: true, alreadyMinted: true, rankId: row.rankId }; } catch {}
         if (/Already minted/i.test(error.message || '')) return { ok: true, attempt, rankKey, recovered: true, alreadyMinted: true };
-        if (attempt < attempts) { const delay = attempt * 1500; this.log(`  Mint ${rankKey} failed on attempt ${attempt}/${attempts}: ${error.message}`); this.log(`     Retrying after ${delay}ms...`); await sleep(delay); }
+        if (attempt < attempts) { const delay = this.fastMode ? 0 : attempt * 1500; if (delay > 0) { this.log(`  Mint ${rankKey} failed on attempt ${attempt}/${attempts}: ${error.message}`); this.log(`     Retrying after ${delay}ms...`); await sleep(delay); } }
       }
     }
     return { ok: false, rankKey, error: lastError?.message || 'unknown mint failure' };
@@ -765,7 +765,7 @@ class DACBot {
       const tracking = await this.snapshotTracking();
       const after = await this.status();
       campaign.actions.push({ loop: i + 1, before: { qe: before.qe, rank: before.rank, txCount: before.txCount }, after: { qe: after.qe, rank: after.rank, txCount: after.txCount }, strategyPlan, minted, tracking });
-      if (i < campaign.loops - 1 && campaign.intervalSeconds > 0) { this.log(`Sleeping ${campaign.intervalSeconds}s before next campaign loop...`); await sleep(campaign.intervalSeconds * 1000); }
+      if (i < campaign.loops - 1 && campaign.intervalSeconds > 0 && !this.fastMode) { this.log(`Sleeping ${campaign.intervalSeconds}s before next campaign loop...`); await sleep(campaign.intervalSeconds * 1000); }
     }
     writeJson(CAMPAIGN_FILE, campaign);
     return campaign;
@@ -826,7 +826,12 @@ class DACBot {
 
     await this.ensureSession(false);
     let strategyPlan = null;
-    if (strategy) { advanceStep('strategy', `Strategy warmup (${profile})`); this.log('\n  Strategy warmup...'); strategyPlan = await this.runStrategy({ profileName: profile, txCount, txAmount, ...(burnAmount ? { minBurnAmount: burnAmount } : {}), ...(stakeAmount ? { minStakeAmount: stakeAmount } : {}) }); this.invalidateRuntimeCache(['profile', 'status']); }
+    if (strategy) {
+      advanceStep('strategy', `Strategy warmup (${profile})`);
+      this.log('\n  Strategy warmup...');
+      try { strategyPlan = await this.runStrategy({ profileName: profile, txCount, txAmount, ...(burnAmount ? { minBurnAmount: burnAmount } : {}), ...(stakeAmount ? { minStakeAmount: stakeAmount } : {}) }); this.invalidateRuntimeCache(['profile', 'status']); }
+      catch (error) { this.log(`  Strategy: ${formatErrorMessage(error)}`); }
+    }
 
     const before = await this.status();
     if (before.error) throw new Error(before.error);
@@ -846,9 +851,9 @@ class DACBot {
     else this.log(`  Sync: ${sync.error || 'unknown error'}`);
 
     advanceStep('explore', 'Run exploration checks'); this.log('\n  Exploration...'); await this.runExploration();
-    if (tasks) { advanceStep('tasks', 'Complete social tasks'); this.log('\n  Tasks...'); await this.runSocialTasks(); }
-    if (badges) { advanceStep('badges', 'Claim badges'); this.log('\n  Badges...'); await this.runBadgeClaim(); }
-    if (faucet) { advanceStep('faucet', 'Claim faucet'); this.log('\n  Faucet...'); await this.runFaucet(); }
+    if (tasks) { advanceStep('tasks', 'Complete social tasks'); this.log('\n  Tasks...'); try { await this.runSocialTasks(); } catch (error) { this.log(`  Tasks: ${formatErrorMessage(error)}`); } }
+    if (badges) { advanceStep('badges', 'Claim badges'); this.log('\n  Badges...'); try { await this.runBadgeClaim(); } catch (error) { this.log(`  Badges: ${formatErrorMessage(error)}`); } }
+    if (faucet) { advanceStep('faucet', 'Claim faucet'); this.log('\n  Faucet...'); try { await this.runFaucet(); } catch (error) { this.log(`  Faucet: ${formatErrorMessage(error)}`); } }
     if (txGrind) { advanceStep('txGrind', `Send TX x${txCount}`); this.log('\n  TX Grind...'); try { await this.grindTransactions({ count: txCount, amount: txAmount }); } catch (error) { this.log(`  TX Grind: ${formatErrorMessage(error)}`); } }
     if (receive) { advanceStep('receive', `Receive quest x${receiveCount}`); this.log('\n  Receive quest...'); try { await this.receiveTransactions({ count: receiveCount, amount: receiveAmount }); } catch (error) { this.log(`  Receive: ${formatErrorMessage(error)}`); } }
     if (mesh) { advanceStep('mesh', `Mesh loop x${meshCount}`); this.log('\n  Send + receive mesh...'); try { await this.txMesh({ count: meshCount, amount: meshAmount }); } catch (error) { this.log(`  Mesh: ${formatErrorMessage(error)}`); } }
@@ -856,12 +861,14 @@ class DACBot {
     if (stakeAmount) { advanceStep('stake', `Stake ${stakeAmount} DACC`); this.log('\n  Stake DACC...'); try { const result = await this.stakeDacc(stakeAmount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake: ${formatErrorMessage(error)}`); } }
     if (mintScan) {
       advanceStep('mintScan', 'Scan and auto-mint eligible ranks'); this.log('\n  Mint Scan...');
-      const mintRows = await this.getMintableRanks();
-      const mintable = mintRows.filter((r) => r.backendReady && !r.minted);
-      this.log(`  ${mintable.length ? `Potentially mintable ranks: ${mintable.map((r) => r.rankName).join(', ')}` : 'No backend-ready rank mints detected yet'}`);
-      if (mintable.length) { this.log('\n  Auto-minting backend-ready ranks...'); const minted = await this.mintAllEligibleRanks(); const okCount = (minted.results || []).filter((row) => row.ok).length; const failCount = (minted.results || []).filter((row) => !row.ok).length; this.log(`  Auto-mint complete: ${okCount} success, ${failCount} failed`); this.invalidateRuntimeCache(['profile', 'status']); }
+      try {
+        const mintRows = await this.getMintableRanks();
+        const mintable = mintRows.filter((r) => r.backendReady && !r.minted);
+        this.log(`  ${mintable.length ? `Potentially mintable ranks: ${mintable.map((r) => r.rankName).join(', ')}` : 'No backend-ready rank mints detected yet'}`);
+        if (mintable.length) { this.log('\n  Auto-minting backend-ready ranks...'); const minted = await this.mintAllEligibleRanks(); const okCount = (minted.results || []).filter((row) => row.ok).length; const failCount = (minted.results || []).filter((row) => !row.ok).length; this.log(`  Auto-mint complete: ${okCount} success, ${failCount} failed`); this.invalidateRuntimeCache(['profile', 'status']); }
+      } catch (error) { this.log(`  Mint Scan: ${formatErrorMessage(error)}`); }
     }
-    if (crates) { advanceStep('crates', 'Open crates'); this.log('\n  Crates...'); await this.runCrates(); }
+    if (crates) { advanceStep('crates', 'Open crates'); this.log('\n  Crates...'); try { await this.runCrates(); } catch (error) { this.log(`  Crates: ${formatErrorMessage(error)}`); } }
     const after = await this.status();
     this.log(`\n  FINAL: QE=${after.qe} | DACC=${after.dacc} | #${after.rank} | ${after.badges} badges | tx_count=${after.txCount}\n`);
     return { ok: true, strategyPlan };

@@ -40,6 +40,7 @@ function parseArgs(argv) {
     else if (arg === '--quiet') parsed.quiet = true;
     else if (arg === '--json') parsed.json = true;
     else if (arg === '--fast') parsed.fast = true;
+    else if (arg === '--concurrency') parsed.concurrency = Number(args[++i]);
     else if (arg === '--strategy') parsed.strategyFlag = true;
     else if (arg === '--no-human') parsed.humanMode = false;
     else if (arg === '--help' || arg === '-h') parsed.command = 'help';
@@ -50,6 +51,7 @@ function parseArgs(argv) {
   parsed.interval = sanitizePositiveNumber(parsed.interval, 360, { minimum: 1, maximum: 1440, integer: true });
   parsed.txCount = sanitizePositiveNumber(parsed.txCount, 3, { minimum: 1, maximum: 100, integer: true });
   parsed.durationHours = sanitizePositiveNumber(parsed.durationHours, 24, { minimum: 1, maximum: 168, integer: false });
+  parsed.concurrency = sanitizePositiveNumber(parsed.concurrency, 1, { minimum: 1, maximum: 10, integer: true });
   return parsed;
 }
 
@@ -108,6 +110,7 @@ Options:
   --duration-hours <h>  Faucet loop duration
   --quiet               Less output
   --fast                Shorter delays
+  --concurrency <n>     Parallel account workers (1-10)
   --json                JSON output
 `);
 }

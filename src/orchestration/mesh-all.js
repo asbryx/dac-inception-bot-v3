@@ -2,7 +2,7 @@ const { accountNames } = require('../config/accounts');
 const { validateSelectedAccounts } = require('../config/preflight');
 const { runAcrossAccounts } = require('./runner');
 
-async function runTxMeshAll({ contextFactory, selected = null, count = 1, amount = '0.0001', onStart = null, onComplete = null } = {}) {
+async function runTxMeshAll({ contextFactory, selected = null, count = 1, amount = '0.0001', onStart = null, onComplete = null, concurrency = 1 } = {}) {
   const accounts = selected && selected.length ? selected : accountNames();
   const preflight = validateSelectedAccounts(accounts);
   const validAccounts = preflight.rows.filter((row) => row.ok).map((row) => row.accountName);
@@ -14,7 +14,7 @@ async function runTxMeshAll({ contextFactory, selected = null, count = 1, amount
   const results = await runAcrossAccounts(validAccounts, async (accountName) => {
     const context = await contextFactory(accountName);
     return context.bot.txMesh({ count, amount });
-  }, { onStart, onComplete, concurrency: 1, action: 'tx-mesh-all' });
+  }, { onStart, onComplete, concurrency, action: 'tx-mesh-all' });
   return {
     task: 'tx-mesh-all',
     accounts,
