@@ -147,11 +147,10 @@ async function buildAutoAllOptionsInteractive(promptFn) {
   // Load persistent feature state
   let featureState = loadFeatureState();
 
-  // Build category-grouped toggle items
+  // Build flat toggle items (no section headers)
   const groups = getFeaturesByCategory(featureState);
   const toggleItems = [];
   for (const group of groups) {
-    toggleItems.push({ label: `── ${group.label} ──`, value: `__header_${group.category}`, checked: false, type: 'header' });
     for (const item of group.items) {
       toggleItems.push({ label: item.label, value: item.id, checked: item.enabled, description: item.description });
     }
@@ -238,7 +237,8 @@ async function runSingleAccountAutomation(context, options, { useVisual = false,
     return { ok: true, result, tracker };
   } catch (error) {
     if (live) live.stop();
-    tracker.add('Fatal error').fail(tracker.steps[tracker.steps.length - 1]?.id, error);
+    const step = tracker.add('Fatal error');
+    tracker.fail(step.id, error);
     return { ok: false, error: error.message, tracker };
   }
 }
@@ -267,8 +267,13 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     onComplete: ({ account, index, total, ok, error }) => {
       const tracker = progressMap.getTracker(account);
       if (tracker) {
-        if (ok) tracker.add('Complete').finish(tracker.steps[tracker.steps.length - 1]?.id);
-        else tracker.add('Failed').fail(tracker.steps[tracker.steps.length - 1]?.id, new Error(error));
+        if (ok) {
+          const step = tracker.add('Complete');
+          tracker.finish(step.id);
+        } else {
+          const step = tracker.add('Failed');
+          tracker.fail(step.id, new Error(error));
+        }
       }
       progressMap.setCurrent(null);
       if (useVisual) {
