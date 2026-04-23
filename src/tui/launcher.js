@@ -151,7 +151,7 @@ async function buildAutoAllOptionsInteractive(promptFn) {
   const groups = getFeaturesByCategory(featureState);
   const toggleItems = [];
   for (const group of groups) {
-    toggleItems.push({ label: `── ${group.label} ──`, value: `__header_${group.category}`, checked: false, disabled: true });
+    toggleItems.push({ label: `── ${group.label} ──`, value: `__header_${group.category}`, checked: false, type: 'header' });
     for (const item of group.items) {
       toggleItems.push({ label: item.label, value: item.id, checked: item.enabled, description: item.description });
     }
@@ -162,7 +162,7 @@ async function buildAutoAllOptionsInteractive(promptFn) {
   // Update feature state
   const enabledSet = new Set(selected);
   for (const feat of toggleItems) {
-    if (!feat.disabled && feat.value) {
+    if (feat.type !== 'header' && feat.value) {
       featureState[feat.value] = enabledSet.has(feat.value);
     }
   }

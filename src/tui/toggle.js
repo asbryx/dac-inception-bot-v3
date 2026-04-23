@@ -24,24 +24,87 @@ async function promptMultiToggleFallback(title, items) {
   const state = items.map((item) => ({ ...item }));
   console.log(`\n${color(String(title).toUpperCase(), `${ANSI.bold}${C.title}`)}`);
   console.log(color('Enter numbers separated by commas to toggle. Leave blank to keep defaults.', C.muted));
-  state.forEach((item, idx) => {
+  let displayIndex = 0;
+  state.forEach((item) => {
+    if (item.type === 'header' || String(item.value).startsWith('__header_')) {
+      console.log(`  ${color(item.label, `${ANSI.bold}${C.label}`)}`);
+      return;
+    }
+    displayIndex += 1;
     const mark = item.checked ? color('[x]', C.success) : color('[ ]', C.muted);
-    console.log(`  ${String(idx + 1).padStart(2)}. ${mark} ${item.label}`);
+    console.log(`  ${String(displayIndex).padStart(2)}. ${mark} ${item.label}`);
   });
   const answer = await prompt('Toggle items: ');
-  if (!answer) return state.filter((item) => item.checked).map((item) => item.value);
+  if (!answer) return state.filter((item) => item.checked && item.type !== 'header' && !String(item.value).startsWith('__header_')).map((item) => item.value);
   const toggledIndexes = Array.from(new Set(
-    answer.split(',').map((part) => Number(part.trim())).filter((n) => Number.isInteger(n) && n >= 1 && n <= items.length),
+    answer.split(',').map((part) => Number(part.trim())).filter((n) => Number.isInteger(n) && n >= 1 && n <= displayIndex),
   ));
+  // Map display indexes back to actual item indexes (skipping headers)
+  const featureItems = state.filter((item) => item.type !== 'header' && !String(item.value).startsWith('__header_'));
   toggledIndexes.forEach((toggleIndex) => {
-    state[toggleIndex - 1].checked = !state[toggleIndex - 1].checked;
+    const target = featureItems[toggleIndex - 1];
+    if (target) target.checked = !target.checked;
   });
-  return state.filter((item) => item.checked).map((item) => item.value);
+  return state.filter((item) => item.checked && item.type !== 'header' && !String(item.value).startsWith('__header_')).map((item) => item.value);
 }
 
 function promptMultiToggleTTY(title, items) {
   const state = items.map((item) => ({ ...item }));
   let index = 0;
+
+  // Build group map from headers (type === 'header' or value starts with __header_)
+  const groups = [];
+  let currentGroup = null;
+  for (let i = 0; i < state.length; i++) {
+    const item = state[i];
+    if (item.type === 'header' || String(item.value).startsWith('__header_')) {
+      currentGroup = { headerIndex: i, itemIndexes: [] };
+      groups.push(currentGroup);
+    } else if (currentGroup) {
+      currentGroup.itemIndexes.push(i);
+    }
+  }
+
+  function syncHeader(group) {
+    const header = state[group.headerIndex];
+    const children = group.itemIndexes.map((idx) => state[idx]);
+    const allChecked = children.length > 0 && children.every((c) => c.checked);
+    const someChecked = children.some((c) => c.checked);
+    if (allChecked) header.checked = true;
+    else if (someChecked) header.checked = 'indeterminate';
+    else header.checked = false;
+  }
+
+  function syncAllHeaders() {
+    for (const group of groups) syncHeader(group);
+  }
+
+  // Initial header sync
+  syncAllHeaders();
+
+  function toggleItem(idx) {
+    const item = state[idx];
+    if (item.type === 'header' || String(item.value).startsWith('__header_')) {
+      // Header: find group and toggle all children
+      const group = groups.find((g) => g.headerIndex === idx);
+      if (!group) return;
+      const newState = item.checked !== true;
+      for (const childIdx of group.itemIndexes) {
+        state[childIdx].checked = newState;
+      }
+      item.checked = newState;
+    } else {
+      // Regular item: just toggle
+      item.checked = !item.checked;
+      // Find parent group and sync header
+      for (const group of groups) {
+        if (group.itemIndexes.includes(idx)) {
+          syncHeader(group);
+          break;
+        }
+      }
+    }
+  }
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   readline.emitKeypressEvents(process.stdin);
@@ -53,7 +116,10 @@ function promptMultiToggleTTY(title, items) {
     const lines = state.map((item, idx) => {
       const active = idx === index;
       const pointer = active ? color('›', C.primary) : color('·', C.muted);
-      const mark = item.checked ? color('[x]', C.success) : color('[ ]', C.muted);
+      let mark;
+      if (item.checked === 'indeterminate') mark = color('[-]', C.warn);
+      else if (item.checked) mark = color('[x]', C.success);
+      else mark = color('[ ]', C.muted);
       const label = active ? color(item.label, C.value) : color(item.label, C.label);
       return ` ${pointer} ${mark} ${label}`;
     });
@@ -93,7 +159,7 @@ function promptMultiToggleTTY(title, items) {
         return;
       }
       if (key.name === 'space') {
-        state[index].checked = !state[index].checked;
+        toggleItem(index);
         render();
         return;
       }
