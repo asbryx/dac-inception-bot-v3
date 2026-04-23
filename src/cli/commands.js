@@ -149,6 +149,7 @@ async function handleStatusAll(args) {
   const proxyRotation = getSharedProxyRotation(args);
   const result = await runStatusAll({
     contextFactory: makeContextFactory(args, proxyRotation),
+    selected: args.accounts || undefined,
     concurrency: 4,
     onStart: ({ account, index, total }) => {
       if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
@@ -300,7 +301,7 @@ async function runCommand(args) {
   if (command === 'wallet-login-all') {
     const proxyRotation = getSharedProxyRotation(args);
     const contextFactory = makeContextFactory(args, proxyRotation);
-    const all = await runStatusAll({ contextFactory, concurrency: args.concurrency || 1 });
+    const all = await runStatusAll({ contextFactory, selected: args.accounts || undefined, concurrency: args.concurrency || 1 });
     const rows = await Promise.all(all.accounts.map(async (account) => {
       try {
         const context = await contextFactory(account);
@@ -359,6 +360,7 @@ async function runCommand(args) {
     const proxyRotation = getSharedProxyRotation(args);
     const result = await runReceiveAll({
       contextFactory: makeContextFactory(args, proxyRotation),
+      selected: args.accounts || undefined,
       count: args.txCount,
       amount: args.txAmount,
       concurrency: args.concurrency || 1,
@@ -390,6 +392,7 @@ async function runCommand(args) {
     const proxyRotation = getSharedProxyRotation(args);
     const result = await runTxMeshAll({
       contextFactory: makeContextFactory(args, proxyRotation),
+      selected: args.accounts || undefined,
       count: args.txCount,
       amount: args.txAmount,
       concurrency: args.concurrency || 1,
@@ -448,6 +451,7 @@ async function runCommand(args) {
     const proxyRotation = getSharedProxyRotation(args);
     const result = await runMintAllRanksAll({
       contextFactory: makeContextFactory(args, proxyRotation),
+      selected: args.accounts || undefined,
       concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
         if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
@@ -473,6 +477,7 @@ async function runCommand(args) {
     const proxyRotation = getSharedProxyRotation(args);
     const result = await runTrackAll({
       contextFactory: makeContextFactory(args, proxyRotation),
+      selected: args.accounts || undefined,
       concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
         if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
@@ -498,6 +503,7 @@ async function runCommand(args) {
     const proxyRotation = getSharedProxyRotation(args);
     const result = await runCampaignAll({
       contextFactory: makeContextFactory(args, proxyRotation),
+      selected: args.accounts || undefined,
       profile: args.profile || 'balanced',
       concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
@@ -543,6 +549,7 @@ async function runCommand(args) {
     };
     const result = await runFaucetLoopAll({
       contextFactory: makeContextFactory(args, proxyRotation),
+      selected: args.accounts || undefined,
       durationHours: args.durationHours || 24,
       intervalMinutes: args.interval || 60,
       concurrency: args.concurrency || 1,

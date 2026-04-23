@@ -362,7 +362,13 @@ class DACBot {
   }
 
   rotateUserAgent() { if (!this.humanMode || this.humanFeatures.rotateUserAgent === false) return; this.session.userAgent = pickUserAgent(); }
-  enforceSafety() { return false; }
+  enforceSafety() {
+    if (!this.safety?.suspendedUntil) return false;
+    if (new Date(this.safety.suspendedUntil) > new Date()) {
+      throw new Error(`Safety cooldown active until ${this.safety.suspendedUntil}: ${this.safety.lastReason || 'unknown'}`);
+    }
+    return false;
+  }
 
   recordFailure(reason, { challenge = false } = {}) {
     const fc = (this.safety?.failureCount || 0) + 1;
@@ -452,9 +458,13 @@ class DACBot {
   createChildWallets(count = 3) {
     const wallets = [];
     for (let i = 0; i < count; i += 1) { const wallet = ethers.Wallet.createRandom(); wallets.push({ address: wallet.address, privateKey: wallet.privateKey, mnemonic: wallet.mnemonic?.phrase || null }); }
-    writeJson(CHILD_WALLETS_FILE, { createdAt: new Date().toISOString(), wallets });
+    const allChildWallets = readJson(CHILD_WALLETS_FILE, {});
+    allChildWallets[this.accountName || 'default'] = { createdAt: new Date().toISOString(), wallets };
+    writeJson(CHILD_WALLETS_FILE, allChildWallets);
     return { wallets, file: CHILD_WALLETS_FILE };
   }
+
+  loadChildWallets() { const all = readJson(CHILD_WALLETS_FILE, {}); const data = all[this.accountName || 'default'] || {}; return Array.isArray(data.wallets) ? data.wallets : []; }
 
   async sendNative(to, amountEth) {
     if (!this.wallet) throw new Error('No private key configured');
@@ -767,7 +777,9 @@ class DACBot {
       campaign.actions.push({ loop: i + 1, before: { qe: before.qe, rank: before.rank, txCount: before.txCount }, after: { qe: after.qe, rank: after.rank, txCount: after.txCount }, strategyPlan, minted, tracking });
       if (i < campaign.loops - 1 && campaign.intervalSeconds > 0 && !this.fastMode) { this.log(`Sleeping ${campaign.intervalSeconds}s before next campaign loop...`); await sleep(campaign.intervalSeconds * 1000); }
     }
-    writeJson(CAMPAIGN_FILE, campaign);
+    const allCampaigns = readJson(CAMPAIGN_FILE, {});
+    allCampaigns[this.accountName || 'default'] = campaign;
+    writeJson(CAMPAIGN_FILE, allCampaigns);
     return campaign;
   }
 
@@ -798,7 +810,8 @@ class DACBot {
   async runStrategy(configOverrides = {}) {
     const requestedProfile = configOverrides.profileName || DEFAULT_PROFILE;
     const profileDefaults = STRATEGY_PROFILES[requestedProfile] || STRATEGY_DEFAULTS;
-    const persisted = readJson(STRATEGY_FILE, {});
+    const allStrategies = readJson(STRATEGY_FILE, {});
+    const persisted = allStrategies[this.accountName || 'default'] || {};
     const persistedProfile = persisted.profileName && !configOverrides.profileName ? persisted.profileName : requestedProfile;
     const effectiveProfileDefaults = STRATEGY_PROFILES[persistedProfile] || profileDefaults;
     const config = { ...effectiveProfileDefaults, ...persisted, ...configOverrides, profileName: persistedProfile };
@@ -814,7 +827,8 @@ class DACBot {
       else if (action.type === 'burn') { try { const result = await this.burnForQE(action.amount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { this.log(`  Burn skipped: ${formatErrorMessage(error)}`); } }
       else if (action.type === 'crates') await this.runCrates();
     }
-    writeJson(STRATEGY_FILE, config);
+    allStrategies[this.accountName || 'default'] = config;
+    writeJson(STRATEGY_FILE, allStrategies);
     return plan;
   }
 

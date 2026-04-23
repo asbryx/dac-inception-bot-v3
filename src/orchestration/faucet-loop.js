@@ -45,10 +45,13 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
   const startedAt = Date.now();
   const until = startedAt + durationHours * 60 * 60 * 1000;
   const perAccount = [];
-
   for (const accountName of validAccounts) {
-    const context = await contextFactory(accountName);
-    perAccount.push({ account: accountName, bot: context.bot, runs: [] });
+    try {
+      const context = await contextFactory(accountName);
+      perAccount.push({ account: accountName, bot: context.bot, runs: [] });
+    } catch (error) {
+      invalidResults.push({ account: accountName, ok: false, error: `context factory failed: ${error.message}` });
+    }
   }
 
   let cycle = 0;
