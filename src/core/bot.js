@@ -492,8 +492,6 @@ class DACBot {
     return { sent, sync };
   }
 
-  loadChildWallets() { const data = readJson(CHILD_WALLETS_FILE, {}); return Array.isArray(data.wallets) ? data.wallets : []; }
-
   async childWalletReceiveLoop({ count = 1, amount = '0.0001' } = {}) {
     if (!this.wallet) throw new Error('No private key configured');
     let children = this.loadChildWallets();
