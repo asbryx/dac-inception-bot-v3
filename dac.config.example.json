@@ -1,34 +1,34 @@
 {
-  "default": "main01",
+  "accounts": [
+    {
+      "name": "account1",
+      "walletPrivateKey": "0xYOUR_PRIVATE_KEY_HERE",
+      "address": "0xYOUR_WALLET_ADDRESS",
+      "session": {
+        "id": "dac-session-id-placeholder",
+        "cookie": "sessionid=placeholder; csrftoken=placeholder",
+        "csrfToken": "placeholder",
+        "walletAddress": "0xYOUR_WALLET_ADDRESS",
+        "updatedAt": "2025-01-01T00:00:00.000Z"
+      }
+    }
+  ],
+  "strategy": {
+    "intervalSeconds": 60,
+    "maxDailyMints": 20,
+    "minRankIntervalSeconds": 5
+  },
   "addons": {
     "proxies": {
-      "enabled": true,
-      "list": [
-        "http://user:pass@proxy-01.example:8000",
-        "http://user:pass@proxy-02.example:8000",
-        "http://user:pass@proxy-03.example:8000"
-      ],
+      "enabled": false,
+      "list": [],
       "failover": {
-        "enabled": true,
+        "enabled": false,
         "healthCheckPath": "/api/inception/network/",
         "healthCheckTimeoutMs": 8000,
         "cooldownMs": 300000,
         "maxAttemptsPerRequest": 3
       }
-    }
-  },
-  "accounts": {
-    "main01": {
-      "privateKey": "0xYOUR_PRIVATE_KEY_01"
-    },
-    "main02": {
-      "privateKey": "0xYOUR_PRIVATE_KEY_02"
-    },
-    "main03": {
-      "privateKey": "0xYOUR_PRIVATE_KEY_03"
-    },
-    "main04": {
-      "privateKey": "0xYOUR_PRIVATE_KEY_04"
     }
   }
 }
