@@ -459,7 +459,10 @@ async function runInteractiveLauncher(context, args = {}) {
           onProgress: useVisual
             ? ({ account, cycle, status, detail }) => {
                 const p = progressMap.get(account) || {};
-                progressMap.set(account, { ...p, cycle, status, detail });
+                let ok = p.ok;
+                if (status === 'claimed') ok = true;
+                else if (status === 'failed') ok = ok === true ? true : false;
+                progressMap.set(account, { ...p, cycle, status, detail, ok });
                 throttledFaucetRender(account);
               }
             : ({ account, cycle, status, detail }) => {

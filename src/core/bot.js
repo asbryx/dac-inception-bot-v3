@@ -12,11 +12,13 @@ const walletAuth = require('../auth/wallet-auth');
 const statusDomain = require('../domain/status');
 const { resolveAccountProxy, createConfiguredProxyRotation } = require('../addons/proxies');
 const { StepTracker } = require('../tui/tracker');
+const { writeJson } = require('../config/files');
+const { upsertAccount, loadAccountsConfig, accountNames: configAccountNames } = require('../config/accounts');
+const { paths } = require('../config/paths');
 
 const BASE_URL = 'https://inception.dachain.io';
 const API_BASE = `${BASE_URL}/api/inception`;
 const CONFIG_DIR = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'dac-bot-v3');
-const APP_CONFIG_FILE = path.join(process.cwd(), 'dac.config.json');
 const STRATEGY_FILE = path.join(CONFIG_DIR, 'strategy.json');
 const MINT_CACHE_FILE = path.join(CONFIG_DIR, 'mint-status.json');
 const CHILD_WALLETS_FILE = path.join(CONFIG_DIR, 'child-wallets.json');
@@ -141,19 +143,8 @@ function readJson(file, fallback = null) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
 }
 
-function isSecretFile(file) {
-  const resolved = path.resolve(file);
-  const secretFiles = new Set([path.resolve(APP_CONFIG_FILE)]);
-  return secretFiles.has(resolved);
-}
-
-function writeJson(file, data) {
-  ensureDir(path.dirname(file));
-  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: isSecretFile(file) ? 0o600 : 0o644 });
-}
-
 function loadAppConfig() {
-  const direct = readJson(APP_CONFIG_FILE, null);
+  const direct = readJson(paths.appConfigFile, null);
   if (direct) return normalizeAppConfig(direct);
   return defaultAppConfig();
 }
@@ -162,14 +153,13 @@ function saveAppConfig(config) {
   const normalized = normalizeAppConfig(config);
   const names = Object.keys(normalized.accounts);
   if (!normalized.default && names.length === 1) normalized.default = names[0];
-  writeJson(APP_CONFIG_FILE, normalized);
+  writeJson(paths.appConfigFile, normalized);
   return normalized;
 }
 
-function currentSessionFile() { return APP_CONFIG_FILE; }
-function currentAccountsFile() { return APP_CONFIG_FILE; }
+function currentSessionFile() { return paths.appConfigFile; }
+function currentAccountsFile() { return paths.appConfigFile; }
 
-function loadAccountsConfig() { return loadAppConfig(); }
 function loadAccounts() { return loadAccountsConfig().accounts; }
 function accountNames() { return Object.keys(loadAccounts()); }
 
@@ -177,22 +167,6 @@ function resolveDefaultAccountName(explicit = null) {
   if (explicit) return explicit;
   const config = loadAccountsConfig();
   return config.default || null;
-}
-
-function upsertAccount(name, payload, { makeDefault = false } = {}) {
-  const config = loadAccountsConfig();
-  const existing = config.accounts[name] || {};
-  config.accounts[name] = { ...existing, ...payload };
-  if (makeDefault || !config.default) config.default = name;
-  return saveAppConfig(config);
-}
-
-function sanitizePositiveNumber(value, fallback, { minimum = 1, maximum = Number.MAX_SAFE_INTEGER, integer = false } = {}) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  const normalized = integer ? Math.trunc(parsed) : parsed;
-  if (normalized < minimum || normalized > maximum) return fallback;
-  return normalized;
 }
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
@@ -420,7 +394,7 @@ class DACBot {
   }
 
   persistSession(cookieString, csrf) {
-    const payload = { cookies: cookieString, csrf, privateKey: this.privateKey || undefined, wallet: this.walletAddress || undefined, updated: new Date().toISOString() };
+    const payload = { cookies: cookieString, csrf, updated: new Date().toISOString() };
     if (this.accountName) { upsertAccount(this.accountName, payload, { makeDefault: true }); return; }
     writeJson(currentSessionFile(), payload);
   }
@@ -792,9 +766,9 @@ class DACBot {
     return { ok: false, rankKey, error: lastError?.message || 'unknown mint failure' };
   }
 
-  async mintAllEligibleRanks() {
-    const rows = await this.getMintableRanks();
-    const eligible = rows.filter((row) => row.backendReady && !row.minted);
+  async mintAllEligibleRanks(rows = null) {
+    const source = rows || await this.getMintableRanks();
+    const eligible = source.filter((row) => row.backendReady && !row.minted);
     const results = [];
     for (const row of eligible) {
       const minted = await this.mintRankWithRetry(row.badgeKey, 3);
@@ -1004,7 +978,7 @@ class DACBot {
         const mintRows = await this.getMintableRanks();
         const mintable = mintRows.filter((r) => r.backendReady && !r.minted);
         this.log(`  ${mintable.length ? `Potentially mintable ranks: ${mintable.map((r) => r.rankName).join(', ')}` : 'No backend-ready rank mints detected yet'}`);
-        if (mintable.length) { this.log('\n  Auto-minting backend-ready ranks...'); const minted = await this.mintAllEligibleRanks(); const okCount = (minted.results || []).filter((row) => row.ok).length; const failCount = (minted.results || []).filter((row) => !row.ok).length; this.log(`  Auto-mint complete: ${okCount} success, ${failCount} failed`); this.invalidateRuntimeCache(['profile', 'status']); }
+        if (mintable.length) { this.log('\n  Auto-minting backend-ready ranks...'); const minted = await this.mintAllEligibleRanks(mintRows); const okCount = (minted.results || []).filter((row) => row.ok).length; const failCount = (minted.results || []).filter((row) => !row.ok).length; this.log(`  Auto-mint complete: ${okCount} success, ${failCount} failed`); this.invalidateRuntimeCache(['profile', 'status']); }
       } catch (error) { this.log(`  Mint Scan: ${formatErrorMessage(error)}`); }
     }
 
