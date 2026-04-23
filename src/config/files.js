@@ -8,7 +8,10 @@ function ensureDir(dir) {
 
 function readJson(file, fallback = null) {
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    const raw = fs.readFileSync(file, 'utf8');
+    // Strip UTF-8 BOM if present — Windows editors often add it
+    const cleaned = raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw;
+    return JSON.parse(cleaned);
   } catch {
     return fallback;
   }

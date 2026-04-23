@@ -40,7 +40,7 @@ function makeContextFactory(args, proxyRotation) {
 
 // ─── Visual progress helpers ────────────────────────────
 
-function renderFaucetLoopBanner(progressMap, totalAccounts, currentAccount) {
+function renderFaucetLoopBanner(progressMap, proxiesMap, totalAccounts, currentAccount) {
   const entries = Array.from(progressMap.entries());
   const doneCount = entries.filter(([, p]) => p.ok === true).length;
   const failCount = entries.filter(([, p]) => p.ok === false).length;
@@ -56,20 +56,22 @@ function renderFaucetLoopBanner(progressMap, totalAccounts, currentAccount) {
   const visible = entries;
 
   for (const [name, p] of visible) {
-    if (name === null) {
-      lines.push(`  ${color(p.label, C.muted)}`);
-      continue;
-    }
     const isCurrent = name === currentAccount;
     const prefix = isCurrent ? color('›', C.primary) : ' ';
+    const proxyInfo = proxiesMap?.get(name);
+    const proxyBadge = proxyInfo
+      ? proxyInfo.healthy
+        ? color(`[${proxyInfo.label}]`, C.success)
+        : color(`[${proxyInfo.label}]`, C.error)
+      : color('[no proxy]', C.muted);
     if (p.ok === true) {
-      lines.push(`  ${prefix} ${color('✓', C.success)} ${color(name, C.muted)} ${color('done', C.success)}`);
+      lines.push(`  ${prefix} ${color('✓', C.success)} ${color(name, C.muted)} ${proxyBadge} ${color('done', C.success)}`);
     } else if (p.ok === false) {
-      lines.push(`  ${prefix} ${color('✗', C.error)} ${color(name, C.muted)} ${color(p.error || 'failed', C.errorText)}`);
+      lines.push(`  ${prefix} ${color('✗', C.error)} ${color(name, C.muted)} ${proxyBadge} ${color(p.error || 'failed', C.errorText)}`);
     } else if (p.cycle) {
-      lines.push(`  ${prefix} ${color('◐', C.primary)} ${color(name, C.value)} cycle ${color(String(p.cycle), C.primary)} ${color(p.status || '', C.muted)}`);
+      lines.push(`  ${prefix} ${color('◐', C.primary)} ${color(name, C.value)} ${proxyBadge} cycle ${color(String(p.cycle), C.primary)} ${color(p.status || '', C.muted)}`);
     } else {
-      lines.push(`  ${prefix} ${color('○', C.muted)} ${color(name, C.muted)} ${color('queued', C.muted)}`);
+      lines.push(`  ${prefix} ${color('○', C.muted)} ${color(name, C.muted)} ${proxyBadge} ${color('queued', C.muted)}`);
     }
   }
 
@@ -197,8 +199,10 @@ async function runSingleAccountAutomation(context, options, { useVisual = false,
 // ─── Live Multi-Account Automation ──────────────────────
 
 async function runMultiAccountAutomation({ names, contextFactory, options, args, useVisual, quiet, proxyRotation = null }) {
+  // Defensive: ensure we have a proxy rotation object for display
+  const rotation = proxyRotation || getProxyRotation();
   const totalAccounts = names.length;
-  const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96, accountNames: names, proxyRotation });
+  const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96, accountNames: names, proxyRotation: rotation });
 
   // Throttle visual renders so fast mode doesn't spend all its time clearing the terminal
   let renderPending = false;
@@ -424,8 +428,20 @@ async function runInteractiveLauncher(context, args = {}) {
         const intervalMinutes = await promptNumber((q) => prompt(q), 'Interval minutes', 60);
         const useVisual = process.stdout.isTTY && !args.quiet;
         const progressMap = new Map();
+        const proxiesMap = new Map();
         const config = loadAccountsConfig();
         const totalAccounts = Object.keys(config.accounts).length;
+
+        // Pre-assign proxies for display
+        const rotation = proxyRotation || getProxyRotation();
+        if (rotation?.enabled) {
+          for (const name of Object.keys(config.accounts)) {
+            const proxy = rotation.assign(name);
+            if (proxy) {
+              proxiesMap.set(name, { label: proxy.label, source: 'rotation', healthy: true });
+            }
+          }
+        }
 
         // Throttle banner renders in fast mode
         let faucetRenderPending = false;
@@ -439,13 +455,13 @@ async function runInteractiveLauncher(context, args = {}) {
               setTimeout(() => {
                 faucetRenderPending = false;
                 faucetLastRender = Date.now();
-                renderFaucetLoopBanner(progressMap, totalAccounts, currentAccount);
+                renderFaucetLoopBanner(progressMap, proxiesMap, totalAccounts, currentAccount);
               }, FAUCET_RENDER_MS - (now - faucetLastRender));
             }
             return;
           }
           faucetLastRender = now;
-          renderFaucetLoopBanner(progressMap, totalAccounts, currentAccount);
+          renderFaucetLoopBanner(progressMap, proxiesMap, totalAccounts, currentAccount);
         }
 
         const result = await runFaucetLoopAll({
