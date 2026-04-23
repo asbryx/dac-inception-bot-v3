@@ -131,6 +131,6 @@ function pill(text, tone = C.accent) {
 }
 
 module.exports = {
-  box, heroBox, terminalWidth, wrapLine, clampWidth, padAnsi,
+  box, heroBox, terminalWidth, wrapLine, clampWidth, padAnsi, stripAnsi,
   progressBar, colorProgressBar, metric, pill,
 };
