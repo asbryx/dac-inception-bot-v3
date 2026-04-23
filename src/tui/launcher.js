@@ -283,12 +283,31 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     prepareContext: (accountName, context) => {
       const tracker = progressMap.getTracker(accountName);
       if (tracker) context.bot.tracker = tracker;
-      const proxyLabel = context.proxy?.label || context.bot?.proxy?.label || 'none';
+      const proxy = context.proxy || context.bot?.proxy || null;
+      const proxyLabel = proxy?.label || 'none';
       const proxySource = context.proxySource || context.bot?.proxySource || 'none';
+
+      // Real health check against proxy rotation state
+      let healthy = true;
+      const rotation = context.bot?.proxyRotation;
+      if (rotation && proxy && rotation.healthState) {
+        const state = rotation.healthState.get(proxy.url);
+        if (state?.lastFailedAt) {
+          const cooldownMs = rotation.settings?.failover?.cooldownMs || 300000;
+          const now = Date.now();
+          if (now - state.lastFailedAt < cooldownMs) {
+            healthy = false;
+          }
+        }
+        if (state?.failures > 0 && !state?.lastOkAt) {
+          healthy = false;
+        }
+      }
+
       progressMap.setProxy(accountName, {
         label: proxyLabel,
         source: proxySource,
-        healthy: true,
+        healthy,
       });
     },
   });
