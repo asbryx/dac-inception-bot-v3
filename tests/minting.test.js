@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { DACBot } = require('../src/legacy/runtime');
+const { DACBot } = require('../src/core/bot');
 
 test('mint scan handles missing profile without crashing', async () => {
   const bot = Object.create(DACBot.prototype);

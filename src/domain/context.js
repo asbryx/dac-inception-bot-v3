@@ -2,7 +2,7 @@ const { DACBot } = require('../core/bot');
 const statusDomain = require('./status');
 const { resolveAccountProxy } = require('../addons/proxies');
 
-function createLegacyBackedBot(accountName, overrides = {}) {
+function createBot(accountName, overrides = {}) {
   return new DACBot({
     account: accountName,
     verbose: overrides.verbose ?? false,
@@ -65,7 +65,7 @@ function createAutomationService(bot) {
         if (typeof onProgress === 'function') onProgress({ step, ...detail });
       };
       emit('bootstrap', { message: 'starting automation run' });
-      const result = await bot.run(options);
+      const result = await bot.run({ ...options, progress: (evt) => emit(evt.key || evt.step, evt) });
       emit('complete', { message: 'automation run complete' });
       return result;
     },
@@ -78,7 +78,7 @@ async function createAccountContext(accountName, overrides = {}) {
     ...overrides,
     accountConfig,
   });
-  const bot = createLegacyBackedBot(accountName, {
+  const bot = createBot(accountName, {
     ...overrides,
     accountConfig,
     proxy: proxyAssignment.proxy,
@@ -116,7 +116,7 @@ async function createSingleAccountContext(args = {}) {
 }
 
 module.exports = {
-  createLegacyBackedBot,
+  createBot,
   createStatusService,
   createAutomationService,
   createAccountContext,

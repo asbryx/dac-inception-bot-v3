@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { parseUnits } = require('ethers');
 
-const { DACBot, waitForTxReceipt, buildLegacyTransferRequest } = require('../src/legacy/runtime');
+const { DACBot, waitForTxReceipt, buildLegacyTransferRequest } = require('../src/core/bot');
 
 test('DACBot reuses a shared provider across instances', () => {
   const botA = new DACBot({ verbose: false, humanMode: false, fastMode: true });

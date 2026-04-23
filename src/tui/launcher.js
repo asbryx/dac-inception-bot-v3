@@ -1,8 +1,15 @@
 const { prompt } = require('../cli/prompts');
 const { runLauncher, renderSummaryScreen } = require('./screens');
-const { chooseProfile } = require('./menus');
-const { renderSummaryBundle, renderProxyPanel, renderActionResult, renderMultiResultPanel } = require('./panels');
-const { color, C, theme } = require('./theme');
+const { chooseProfile, chooseAutoAllMode } = require('./menus');
+const {
+  renderSummaryBundle,
+  renderProxyPanel,
+  renderActionResult,
+  renderMultiResultPanel,
+  renderLoopPanel,
+} = require('./panels');
+const { color, C, theme, ANSI } = require('./theme');
+const { box, progressBar, colorProgressBar } = require('./renderer');
 const { summarizeAccounts } = require('../domain/summary');
 const { createAccountContext, createSingleAccountContext } = require('../domain/context');
 const { runStatusAll } = require('../orchestration/status-all');
@@ -13,6 +20,7 @@ const { runMintAllRanksAll } = require('../orchestration/mint-all');
 const { runFaucetLoop, runFaucetLoopAll } = require('../orchestration/faucet-loop');
 const { loadAccountsConfig } = require('../config/accounts');
 const { createConfiguredProxyRotation } = require('../addons/proxies');
+const { promptMultiToggle, promptNumber, promptConfirm } = require('./toggle');
 
 const S = theme.symbols;
 
@@ -27,6 +35,135 @@ function makeContextFactory(args, proxyRotation) {
     proxyRotation,
   });
 }
+
+// ─── Visual progress helpers ────────────────────────────
+
+function renderAutoAllBanner({ account, index, total, step, message }) {
+  const pct = Math.round(((index + 1) / Math.max(total, 1)) * 100);
+  const bar = colorProgressBar(index + 1, total, 24);
+  const lines = [
+    `${color(S.diamond, C.primary)} ${color('AUTO ALL', `${ANSI.bold}${C.title}`)}`,
+    ``,
+    `  ${color('Account:', C.label)} ${color(account || '—', C.value)}`,
+    `  ${color('Progress:', C.label)} ${bar}`,
+    `  ${color('Step:', C.label)}     ${color(step || 'starting', C.primary)}`,
+  ];
+  if (message) lines.push(`  ${color('Detail:', C.label)}  ${color(message, C.muted)}`);
+  console.clear();
+  process.stdout.write(`${box(`${S.diamond} Automation Progress`, lines, 56)}\n`);
+}
+
+function renderFaucetLoopBanner({ account, cycle, status, detail }) {
+  const lines = [
+    `${color(S.diamond, C.primary)} ${color('FAUCET LOOP ALL', `${ANSI.bold}${C.title}`)}`,
+    ``,
+    `  ${color('Account:', C.label)} ${color(account || '—', C.value)}`,
+    `  ${color('Cycle:', C.label)}   ${color(String(cycle || 0), C.primary)}`,
+    `  ${color('Status:', C.label)}  ${color(status || '—', C.success)}`,
+  ];
+  if (detail) lines.push(`  ${color('Detail:', C.label)}  ${color(detail, C.muted)}`);
+  console.clear();
+  process.stdout.write(`${box(`${S.diamond} Faucet Loop`, lines, 56)}\n`);
+}
+
+function renderAccountRow({ account, index, total, ok, error, step, message }) {
+  const idx = `${String(index + 1).padStart(2)}/${String(total).padStart(2)}`;
+  if (ok === undefined) {
+    return `  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${idx})`, C.muted)} ${color(step || 'starting', C.primary)} ${message ? color(`| ${message}`, C.muted) : ''}`;
+  }
+  const sym = ok ? color(S.ok, C.success) : color(S.fail, C.error);
+  const err = error ? ` ${color(error, C.errorText)}` : '';
+  return `  ${sym} ${color(account, C.value)} ${color(`(${idx})`, C.muted)}${err}`;
+}
+
+// ─── Auto-all config builder ────────────────────────────
+
+const AUTO_ALL_DEFAULTS = {
+  tasks: true,
+  badges: true,
+  faucet: false,
+  crates: false,
+  mintScan: true,
+  txGrind: false,
+  receive: false,
+  strategy: false,
+  stake: false,
+  burn: false,
+};
+
+async function buildAutoAllOptions(promptFn) {
+  const preset = await chooseAutoAllMode(promptFn);
+  if (preset === 'default') {
+    return { ...AUTO_ALL_DEFAULTS, profile: 'balanced' };
+  }
+
+  const selected = await promptMultiToggle('Toggle automation groups', [
+    { label: 'Social/API tasks', value: 'tasks', checked: true },
+    { label: 'Badge claiming', value: 'badges', checked: true },
+    { label: 'Faucet', value: 'faucet', checked: false },
+    { label: 'Crates', value: 'crates', checked: false },
+    { label: 'Mint scan', value: 'mintScan', checked: true },
+    { label: 'Send TX grind', value: 'txGrind', checked: false },
+    { label: 'Receive quest', value: 'receive', checked: false },
+    { label: 'Smart strategy mode', value: 'strategy', checked: false },
+    { label: 'Stake DACC', value: 'stake', checked: false },
+    { label: 'Burn DACC for QE', value: 'burn', checked: false },
+  ]);
+
+  const enabled = new Set(selected);
+
+  let profile = 'balanced';
+  if (enabled.has('strategy')) {
+    profile = (await chooseProfile(promptFn)) || 'balanced';
+  }
+
+  let txCount = 3;
+  let txAmount = '0.0001';
+  if (enabled.has('txGrind')) {
+    txCount = await promptNumber(promptFn, 'TX grind count', 3);
+    txAmount = (await promptFn('TX grind amount [0.0001]: ')) || '0.0001';
+  }
+
+  let stakeAmount = null;
+  if (enabled.has('stake')) {
+    stakeAmount = (await promptFn('Stake amount [0.01]: ')) || '0.01';
+  }
+
+  let burnAmount = null;
+  if (enabled.has('burn')) {
+    burnAmount = (await promptFn('Burn amount [0.01]: ')) || '0.01';
+  }
+
+  return {
+    tasks: enabled.has('tasks'),
+    badges: enabled.has('badges'),
+    faucet: enabled.has('faucet'),
+    crates: enabled.has('crates'),
+    mintScan: enabled.has('mintScan'),
+    txGrind: enabled.has('txGrind'),
+    txCount,
+    txAmount,
+    receive: enabled.has('receive'),
+    strategy: enabled.has('strategy'),
+    profile,
+    stakeAmount,
+    burnAmount,
+  };
+}
+
+function printAutomationReview(target, options) {
+  const lines = [
+    `${color('Target:', C.label)} ${color(target, C.value)}`,
+    '',
+    ...Object.entries(options).map(([k, v]) => {
+      const val = v === true ? color('ON', C.success) : v === false ? color('OFF', C.muted) : color(String(v), C.value);
+      return `  ${color(k.padEnd(14), C.label)} ${val}`;
+    }),
+  ];
+  console.log(`\n${box(`${S.star} Automation Review`, lines, 56)}\n`);
+}
+
+// ─── Main launcher loop ─────────────────────────────────
 
 async function runInteractiveLauncher(context, args = {}) {
   const proxyRotation = args.proxyRotation || getProxyRotation();
@@ -95,8 +232,13 @@ async function runInteractiveLauncher(context, args = {}) {
       }
 
       else if (mode === 'auto') {
-        const options = { tasks: true, badges: true, faucet: true, crates: true, mintScan: true };
-        console.log(`\n  ${color(S.tri, C.primary)} Running automation on ${color(context.accountName || 'default', C.value)}...`);
+        const options = await buildAutoAllOptions((q) => prompt(q));
+        const reviewTarget = context.accountName || 'default account';
+        printAutomationReview(reviewTarget, options);
+        const go = await promptConfirm((q) => prompt(q), 'Start automation?');
+        if (!go) { console.log(color('  Cancelled.', C.muted)); await prompt('\nPress Enter to continue...'); continue; }
+
+        console.log(`\n  ${color(S.tri, C.primary)} Running automation on ${color(reviewTarget, C.value)}...`);
         await context.services.automation.run(options, ({ step, message }) => {
           if (!args.quiet && step && message) console.log(`  ${color(S.tri, C.primary)} ${color(step, C.value)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
         });
@@ -104,20 +246,79 @@ async function runInteractiveLauncher(context, args = {}) {
       }
 
       else if (mode === 'auto-all') {
+        const options = await buildAutoAllOptions((q) => prompt(q));
+        const config = loadAccountsConfig();
+        const names = Object.keys(config.accounts);
+        const reviewTarget = `${names.length} accounts`;
+        printAutomationReview(reviewTarget, options);
+        const go = await promptConfirm((q) => prompt(q), 'Start automation across all accounts?');
+        if (!go) { console.log(color('  Cancelled.', C.muted)); await prompt('\nPress Enter to continue...'); continue; }
+
+        const useVisual = process.stdout.isTTY && !args.quiet;
+        const progressMap = new Map();
+
         const result = await runAutomationAll({
           contextFactory,
-          options: { tasks: true, badges: true, faucet: false, crates: false, mintScan: true },
+          options,
+          selected: args.accounts || undefined,
           onStart: ({ account, index, total }) => {
-            if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+            progressMap.set(account, { index, total, step: 'starting', message: '' });
+            if (useVisual) {
+              renderAutoAllBanner({ account, index, total, step: 'starting', message: 'initializing' });
+            } else if (!args.quiet) {
+              console.log(renderAccountRow({ account, index, total, step: 'starting', message: '' }));
+            }
           },
           onComplete: ({ account, index, total, ok, error }) => {
-            if (args.quiet) return;
-            console.log(ok
-              ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
-              : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
+            progressMap.set(account, { index, total, ok, error });
+            if (useVisual) {
+              renderAutoAllBanner({ account, index, total, step: ok ? 'complete' : 'failed', message: error || 'done' });
+            } else if (!args.quiet) {
+              console.log(renderAccountRow({ account, index, total, ok, error }));
+            }
+          },
+          onProgress: ({ account, step, message }) => {
+            const p = progressMap.get(account) || { index: 0, total: 1 };
+            progressMap.set(account, { ...p, step, message });
+            if (useVisual) {
+              renderAutoAllBanner({ account, index: p.index, total: p.total, step, message });
+            } else if (!args.quiet && step && message) {
+              console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(step, C.primary)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
+            }
           },
         });
+
+        if (useVisual) console.clear();
         console.log(renderSummaryBundle(summarizeAccounts(result.results)));
+        await prompt('\nPress Enter to continue...');
+      }
+
+      else if (mode === 'faucet-loop') {
+        const durationHours = await promptNumber((q) => prompt(q), 'Duration hours', 24);
+        const intervalMinutes = await promptNumber((q) => prompt(q), 'Interval minutes', 60);
+        const result = await runFaucetLoop(context.bot, { durationHours, intervalMinutes });
+        console.log(renderLoopPanel('Faucet Loop', result));
+        await prompt('\nPress Enter to continue...');
+      }
+
+      else if (mode === 'faucet-loop-all') {
+        const durationHours = await promptNumber((q) => prompt(q), 'Duration hours', 24);
+        const intervalMinutes = await promptNumber((q) => prompt(q), 'Interval minutes', 60);
+        const useVisual = process.stdout.isTTY && !args.quiet;
+
+        const result = await runFaucetLoopAll({
+          contextFactory,
+          durationHours,
+          intervalMinutes,
+          onProgress: useVisual
+            ? ({ account, cycle, status, detail }) => renderFaucetLoopBanner({ account, cycle, status, detail })
+            : ({ account, cycle, status, detail }) => {
+                if (!args.quiet) console.log(`  ${color(S.dot, C.muted)} ${color(account, C.label)} cycle ${cycle} ${color(status, C.primary)} ${detail ? color(`| ${detail}`, C.muted) : ''}`);
+              },
+        });
+
+        if (useVisual) console.clear();
+        console.log(renderMultiResultPanel('Faucet Loop All', result));
         await prompt('\nPress Enter to continue...');
       }
 

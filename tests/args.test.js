@@ -7,3 +7,13 @@ test('numeric args are clamped to safe defaults', () => {
   assert.equal(result.interval, 360);
   assert.equal(result.txCount, 3);
 });
+
+test('--accounts parses comma-separated list', () => {
+  const result = parseArgs(['node', 'cli', 'run-all', '--accounts', 'alice,bob,charlie']);
+  assert.deepEqual(result.accounts, ['alice', 'bob', 'charlie']);
+});
+
+test('--accounts handles spaces and empty entries', () => {
+  const result = parseArgs(['node', 'cli', 'run-all', '--accounts', 'alice, bob, , charlie']);
+  assert.deepEqual(result.accounts, ['alice', 'bob', 'charlie']);
+});

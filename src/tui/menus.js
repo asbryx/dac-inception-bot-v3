@@ -5,21 +5,23 @@ const S = theme.symbols;
 
 async function chooseLauncherMode(promptFn) {
   const modes = [
-    { key: 'auto',     label: 'Guided automation on current account' },
-    { key: 'auto-all', label: 'One-click automation for all accounts' },
-    { key: 'manual',   label: 'One task group at a time' },
-    { key: 'summary',  label: 'All-accounts dashboard' },
-    { key: 'account',  label: 'Switch active account' },
-    { key: 'advanced', label: 'Mint / burn / stake / tracking' },
-    { key: 'exit',     label: 'Quit the launcher' },
+    { key: 'auto',           label: 'Guided automation on current account' },
+    { key: 'auto-all',       label: 'One-click automation for all accounts' },
+    { key: 'manual',         label: 'One task group at a time' },
+    { key: 'summary',        label: 'All-accounts dashboard' },
+    { key: 'faucet-loop',    label: 'Faucet loop — single account 24h mode' },
+    { key: 'faucet-loop-all',label: 'Faucet loop all — multi-account 24h mode' },
+    { key: 'account',        label: 'Switch active account' },
+    { key: 'advanced',       label: 'Mint / burn / stake / tracking' },
+    { key: 'exit',           label: 'Quit the launcher' },
   ];
 
   const lines = ['', ...modes.map((m) =>
-    `  ${color(S.tri, C.primary)} ${color(m.key.padEnd(12), C.value)}  ${color(m.label, C.label)}`
+    `  ${color(S.tri, C.primary)} ${color(m.key.padEnd(16), C.value)}  ${color(m.label, C.label)}`
   ), ''];
 
   if (process.stdout.isTTY) {
-    process.stdout.write(`\n${box(`${S.diamond} Select Mode`, lines, 56)}\n\n`);
+    process.stdout.write(`\n${box(`${S.diamond} Select Mode`, lines, 68)}\n\n`);
   }
 
   return promptFn(`  ${color(S.tri, C.primary)} ${color('Mode:', C.value)} `);
@@ -43,4 +45,21 @@ async function chooseProfile(promptFn) {
   return promptFn(`  ${color(S.tri, C.primary)} ${color('Profile:', C.value)} `);
 }
 
-module.exports = { chooseLauncherMode, chooseProfile };
+async function chooseAutoAllMode(promptFn) {
+  const modes = [
+    { key: 'default',    label: 'Default (tasks + badges + mintScan)' },
+    { key: 'custom',     label: 'Custom — toggle every option' },
+  ];
+
+  const lines = ['', ...modes.map((m) =>
+    `  ${color(S.tri, C.primary)} ${color(m.key.padEnd(12), C.value)}  ${color(m.label, C.label)}`
+  ), ''];
+
+  if (process.stdout.isTTY) {
+    process.stdout.write(`\n${box(`${S.diamond} Auto All Preset`, lines, 56)}\n\n`);
+  }
+
+  return promptFn(`  ${color(S.tri, C.primary)} ${color('Preset:', C.value)} `);
+}
+
+module.exports = { chooseLauncherMode, chooseProfile, chooseAutoAllMode };

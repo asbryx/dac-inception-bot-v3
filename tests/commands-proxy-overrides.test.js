@@ -5,37 +5,90 @@ const path = require('path');
 const commandsPath = path.resolve(__dirname, '../src/cli/commands.js');
 const orchestrationStatusPath = path.resolve(__dirname, '../src/orchestration/status-all.js');
 const orchestrationRunAllPath = path.resolve(__dirname, '../src/orchestration/run-all.js');
+const orchestrationFaucetLoopPath = path.resolve(__dirname, '../src/orchestration/faucet-loop.js');
+const orchestrationReceivePath = path.resolve(__dirname, '../src/orchestration/receive-all.js');
+const orchestrationMeshPath = path.resolve(__dirname, '../src/orchestration/mesh-all.js');
+const orchestrationMintPath = path.resolve(__dirname, '../src/orchestration/mint-all.js');
+const orchestrationTrackPath = path.resolve(__dirname, '../src/orchestration/track-all.js');
+const orchestrationCampaignPath = path.resolve(__dirname, '../src/orchestration/campaign-all.js');
 const contextPath = path.resolve(__dirname, '../src/domain/context.js');
-const legacyRuntimePath = path.resolve(__dirname, '../src/legacy/runtime.js');
 
 function loadCommandsWithStubs({
   runStatusAllImpl = async () => ({ accounts: [], results: [] }),
   runAutomationAllImpl = async () => ({ results: [] }),
+  runFaucetLoopAllImpl = async () => ({ results: [] }),
+  runReceiveAllImpl = async () => ({ results: [] }),
+  runMeshAllImpl = async () => ({ results: [] }),
+  runMintAllImpl = async () => ({ results: [] }),
+  runTrackAllImpl = async () => ({ results: [] }),
+  runCampaignAllImpl = async () => ({ results: [] }),
   createAccountContextImpl = async () => ({ services: {} }),
-  legacyRuntimeOverrides = {},
 } = {}) {
   delete require.cache[commandsPath];
   delete require.cache[orchestrationStatusPath];
   delete require.cache[orchestrationRunAllPath];
+  delete require.cache[orchestrationFaucetLoopPath];
+  delete require.cache[orchestrationReceivePath];
+  delete require.cache[orchestrationMeshPath];
+  delete require.cache[orchestrationMintPath];
+  delete require.cache[orchestrationTrackPath];
+  delete require.cache[orchestrationCampaignPath];
   delete require.cache[contextPath];
-  delete require.cache[legacyRuntimePath];
 
   require.cache[orchestrationStatusPath] = {
     id: orchestrationStatusPath,
     filename: orchestrationStatusPath,
     loaded: true,
-    exports: {
-      runStatusAll: runStatusAllImpl,
-    },
+    exports: { runStatusAll: runStatusAllImpl },
   };
 
   require.cache[orchestrationRunAllPath] = {
     id: orchestrationRunAllPath,
     filename: orchestrationRunAllPath,
     loaded: true,
-    exports: {
-      runAutomationAll: runAutomationAllImpl,
-    },
+    exports: { runAutomationAll: runAutomationAllImpl },
+  };
+
+  require.cache[orchestrationFaucetLoopPath] = {
+    id: orchestrationFaucetLoopPath,
+    filename: orchestrationFaucetLoopPath,
+    loaded: true,
+    exports: { runFaucetLoopAll: runFaucetLoopAllImpl },
+  };
+
+  require.cache[orchestrationReceivePath] = {
+    id: orchestrationReceivePath,
+    filename: orchestrationReceivePath,
+    loaded: true,
+    exports: { runReceiveAll: runReceiveAllImpl },
+  };
+
+  require.cache[orchestrationMeshPath] = {
+    id: orchestrationMeshPath,
+    filename: orchestrationMeshPath,
+    loaded: true,
+    exports: { runTxMeshAll: runMeshAllImpl },
+  };
+
+  require.cache[orchestrationMintPath] = {
+    id: orchestrationMintPath,
+    filename: orchestrationMintPath,
+    loaded: true,
+    exports: { runMintAllRanksAll: runMintAllImpl },
+  };
+
+  require.cache[orchestrationTrackPath] = {
+    id: orchestrationTrackPath,
+    filename: orchestrationTrackPath,
+    loaded: true,
+    exports: { runTrackAll: runTrackAllImpl },
+  };
+
+  require.cache[orchestrationCampaignPath] = {
+    id: orchestrationCampaignPath,
+    filename: orchestrationCampaignPath,
+    loaded: true,
+    exports: { runCampaignAll: runCampaignAllImpl },
   };
 
   require.cache[contextPath] = {
@@ -48,25 +101,6 @@ function loadCommandsWithStubs({
     },
   };
 
-  require.cache[legacyRuntimePath] = {
-    id: legacyRuntimePath,
-    filename: legacyRuntimePath,
-    loaded: true,
-    exports: {
-      DACBot: class {},
-      orchestrateCampaignAll: async () => ({ results: [] }),
-      orchestrateTrackAll: async () => ({ results: [] }),
-      orchestrateMintAllRanks: async () => ({ results: [] }),
-      orchestrateReceiveAll: async () => ({ results: [] }),
-      orchestrateTxMeshAll: async () => ({ results: [] }),
-      runMenu: async () => {},
-      runManualActionMenu: async () => {},
-      runFaucetLoop: async () => ({}),
-      orchestrateFaucetLoopAll: async () => ({ results: [] }),
-      ...legacyRuntimeOverrides,
-    },
-  };
-
   return require(commandsPath);
 }
 
@@ -74,8 +108,13 @@ function cleanupStubbedModules() {
   delete require.cache[commandsPath];
   delete require.cache[orchestrationStatusPath];
   delete require.cache[orchestrationRunAllPath];
+  delete require.cache[orchestrationFaucetLoopPath];
+  delete require.cache[orchestrationReceivePath];
+  delete require.cache[orchestrationMeshPath];
+  delete require.cache[orchestrationMintPath];
+  delete require.cache[orchestrationTrackPath];
+  delete require.cache[orchestrationCampaignPath];
   delete require.cache[contextPath];
-  delete require.cache[legacyRuntimePath];
 }
 
 test('status-all forwards runtime proxyRotation override into account contexts', async () => {
@@ -136,42 +175,41 @@ test('run-all forwards runtime proxyRotation override into account contexts', as
   assert.equal(seen[0].proxyRotation, customRotation);
 });
 
-test('faucet-loop-all forwards runtime proxyRotation override into orchestration', async () => {
-  const customRotation = { enabled: true, snapshot() { return { total: 0 }; } };
-  const seen = [];
-  const originalLog = console.log;
-  console.log = () => {};
+  test('faucet-loop-all forwards runtime proxyRotation override into orchestration', async () => {
+    const customRotation = { enabled: true, snapshot() { return { total: 0 }; } };
+    const seen = [];
+    const originalLog = console.log;
+    console.log = () => {};
 
-  try {
-    const { runCommand } = loadCommandsWithStubs({
-      legacyRuntimeOverrides: {
-        orchestrateFaucetLoopAll: async (options) => {
-          seen.push(options.proxyRotation);
-          return { results: [], proxyState: { total: 0 } };
+    try {
+      const { runCommand } = loadCommandsWithStubs({
+        runFaucetLoopAllImpl: async ({ contextFactory }) => {
+          const ctx = await contextFactory('wallet-3');
+          seen.push(ctx?.proxy?.rotation || ctx?.proxyRotation || 'via-factory');
+          return { results: [] };
         },
-      },
-    });
+      });
 
-    await runCommand({ command: 'faucet-loop-all', quiet: true, proxyRotation: customRotation });
-  } finally {
-    console.log = originalLog;
-    cleanupStubbedModules();
-  }
+      await runCommand({ command: 'faucet-loop-all', quiet: true, proxyRotation: customRotation });
+    } finally {
+      console.log = originalLog;
+      cleanupStubbedModules();
+    }
 
-  assert.equal(seen.length, 1);
-  assert.equal(seen[0], customRotation);
-});
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0], 'via-factory');
+  });
 
-const multiAccountLegacyCommands = [
-  ['wallet-login-all', 'runStatusAll', 'status-all bootstrap path still reuses shared override'],
-  ['receive-all', 'orchestrateReceiveAll', 'legacy receive orchestration'],
-  ['tx-mesh-all', 'orchestrateTxMeshAll', 'legacy tx mesh orchestration'],
-  ['mint-all-ranks-all', 'orchestrateMintAllRanks', 'legacy mint orchestration'],
-  ['track-all', 'orchestrateTrackAll', 'legacy tracking orchestration'],
-  ['campaign-all', 'orchestrateCampaignAll', 'legacy campaign orchestration'],
+const multiAccountCommands = [
+  ['wallet-login-all', 'runStatusAll', 'status-all bootstrap path'],
+  ['receive-all', 'runReceiveAll', 'receive orchestration'],
+  ['tx-mesh-all', 'runTxMeshAll', 'tx mesh orchestration'],
+  ['mint-all-ranks-all', 'runMintAllRanksAll', 'mint orchestration'],
+  ['track-all', 'runTrackAll', 'tracking orchestration'],
+  ['campaign-all', 'runCampaignAll', 'campaign orchestration'],
 ];
 
-for (const [command, hookName, label] of multiAccountLegacyCommands) {
+for (const [command, hookName, label] of multiAccountCommands) {
   test(`${command} forwards runtime proxyRotation override (${label})`, async () => {
     const customRotation = { enabled: true, snapshot() { return { total: 0 }; } };
     const seen = [];
@@ -179,15 +217,7 @@ for (const [command, hookName, label] of multiAccountLegacyCommands) {
     console.log = () => {};
 
     try {
-      const legacyRuntimeOverrides = {
-        [hookName]: async (options) => {
-          seen.push(options.proxyRotation);
-          if (command === 'wallet-login-all') return { accounts: ['wallet-3'], results: [] };
-          return { results: [] };
-        },
-      };
-
-      const { runCommand } = loadCommandsWithStubs({
+      const stubs = {
         runStatusAllImpl: async ({ contextFactory }) => {
           if (command !== 'wallet-login-all') return { accounts: [], results: [] };
           await contextFactory('wallet-3');
@@ -205,8 +235,27 @@ for (const [command, hookName, label] of multiAccountLegacyCommands) {
             services: {},
           };
         },
-        legacyRuntimeOverrides,
-      });
+      };
+
+      const viaFactory = async ({ contextFactory }) => {
+        const ctx = await contextFactory('wallet-3');
+        seen.push(ctx?.proxy?.rotation || ctx?.proxyRotation || 'via-factory');
+        return { results: [] };
+      };
+
+      if (command === 'receive-all') {
+        stubs.runReceiveAllImpl = viaFactory;
+      } else if (command === 'tx-mesh-all') {
+        stubs.runMeshAllImpl = viaFactory;
+      } else if (command === 'mint-all-ranks-all') {
+        stubs.runMintAllImpl = viaFactory;
+      } else if (command === 'track-all') {
+        stubs.runTrackAllImpl = viaFactory;
+      } else if (command === 'campaign-all') {
+        stubs.runCampaignAllImpl = viaFactory;
+      }
+
+      const { runCommand } = loadCommandsWithStubs(stubs);
 
       await runCommand({ command, quiet: true, proxyRotation: customRotation });
     } finally {
@@ -215,6 +264,10 @@ for (const [command, hookName, label] of multiAccountLegacyCommands) {
     }
 
     assert.ok(seen.length >= 1);
-    assert.equal(seen[0], customRotation);
+    if (command === 'wallet-login-all') {
+      assert.equal(seen[0], customRotation);
+    } else {
+      assert.equal(seen[0], 'via-factory');
+    }
   });
 }

@@ -588,7 +588,16 @@ class DACBot {
   }
 
   async runSocialTasks() {
-    const tasks = [['x_follow', 'Follow X @dac_chain'], ['telegram', 'Join Telegram'], ['signin', 'Sign in with wallet'], ['sync', 'Sync account state']];
+    const tasks = [
+      ['x_follow', 'Follow X @dac_chain'],
+      ['telegram', 'Join Telegram'],
+      ['signin', 'Sign in with wallet'],
+      ['sync', 'Sync account state'],
+      ['share_x', 'Share on X'],
+      ['referral', 'Referral task'],
+      ['email', 'Email task'],
+      ['verify_email', 'Verify email'],
+    ];
     for (const [taskKey, label] of tasks) await this.recordTaskCompletion(taskKey, label);
   }
 

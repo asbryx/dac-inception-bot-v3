@@ -180,7 +180,8 @@ async function handleRunAll(args) {
     }
     if (liveProxyDashboard) renderLive();
   };
-  const options = {
+  // Allow options to come from args.runOptions (interactive launcher) or default
+  const options = args.runOptions || {
     tasks: true,
     badges: true,
     faucet: false,
@@ -199,6 +200,8 @@ async function handleRunAll(args) {
   const result = await runAutomationAll({
     contextFactory: makeContextFactory(args, proxyRotation),
     options,
+    accountNames: args.accounts || undefined,
+    selected: args.accounts || undefined,
     onStart: ({ account, index, total }) => {
       if (liveProxyDashboard) setProgress(account, `running ${index + 1}/${total}`, 'starting');
       else if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);

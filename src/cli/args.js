@@ -25,6 +25,7 @@ function parseArgs(argv) {
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === '--account') parsed.account = args[++i];
+    else if (arg === '--accounts') parsed.accounts = (args[++i] || '').split(',').map((s) => s.trim()).filter(Boolean);
     else if (arg === '--private-key') parsed.privateKey = args[++i];
     else if (arg === '--cookies') parsed.cookies = args[++i];
     else if (arg === '--csrf') parsed.csrf = args[++i];
@@ -93,6 +94,7 @@ Commands:
 
 Options:
   --account <name>      Named account
+  --accounts <a,b>      Comma-separated account list for multi-account commands
   --private-key <key>   Private key
   --cookies <str>       Session cookies
   --csrf <token>        CSRF token
