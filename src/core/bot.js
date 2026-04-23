@@ -868,7 +868,11 @@ class DACBot {
     const persisted = allStrategies[this.accountName || 'default'] || {};
     const persistedProfile = persisted.profileName && !configOverrides.profileName ? persisted.profileName : requestedProfile;
     const effectiveProfileDefaults = STRATEGY_PROFILES[persistedProfile] || profileDefaults;
-    const config = { ...effectiveProfileDefaults, ...persisted, ...configOverrides, profileName: persistedProfile };
+    // If user explicitly picks a profile, ignore persisted numeric params so profile switch actually works
+    const usePersistedParams = !configOverrides.profileName;
+    const config = usePersistedParams
+      ? { ...effectiveProfileDefaults, ...persisted, ...configOverrides, profileName: persistedProfile }
+      : { ...effectiveProfileDefaults, ...configOverrides, profileName: persistedProfile };
     const status = await this.status();
     const crateHistory = await this.crateHistory();
     const plan = this.buildStrategy(status, crateHistory, config);
