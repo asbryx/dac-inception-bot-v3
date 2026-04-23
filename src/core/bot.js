@@ -723,7 +723,7 @@ class DACBot {
       let minted = false;
       if (this.nft && this.wallet) { try { minted = await this.nft.hasMinted(this.wallet.address, rank.id); } catch { minted = false; } }
       let backendReady = false, backendError = null, signature = null, chainId = null;
-      if (badgeOwned || eligibleByQe) {
+      if (!minted && (badgeOwned || eligibleByQe)) {
         const probe = await this.claimSignature(rank.badgeKey);
         backendReady = Boolean(probe.success && probe.signature);
         backendError = backendReady ? null : (probe.error || null);
@@ -742,16 +742,27 @@ class DACBot {
     const rank = RANKS.find((r) => r.badgeKey === rankKey);
     if (!rank) throw new Error(`Unknown rank key: ${rankKey}`);
     return this._track(`Mint ${rank.name}`, async () => {
+      const alreadyMintedBefore = await this.nft.hasMinted(this.wallet.address, rank.id);
+      if (alreadyMintedBefore) return { alreadyMinted: true, rankKey, rankId: rank.id };
       const sig = await this.claimSignature(rankKey);
       if (!sig.success || !sig.signature) throw new Error(sig.error || 'No mint signature returned');
+      const rankId = sig.rank_id ?? sig.rankId ?? rank.id;
+      if (typeof rankId !== 'number' || rankId < 0 || rankId > 12) throw new Error(`Invalid rank id from API: ${rankId}`);
       const normalizedSignature = String(sig.signature).replace(/^0x/i, '');
-      const alreadyMinted = await this.nft.hasMinted(this.wallet.address, sig.rank_id);
-      if (alreadyMinted) return { alreadyMinted: true, rankKey, rankId: sig.rank_id };
-      const tx = await this.nft.claimRank(sig.rank_id, `0x${normalizedSignature}`);
+      const alreadyMinted = await this.nft.hasMinted(this.wallet.address, rankId);
+      if (alreadyMinted) return { alreadyMinted: true, rankKey, rankId };
+      const tx = await this.nft.claimRank(rankId, `0x${normalizedSignature}`);
       await waitForTxReceipt(this.provider, tx.hash);
       const confirm = await this.confirmMint(tx.hash, rankKey);
+      if (!confirm || !confirm.success) throw new Error(confirm?.error || 'Backend did not confirm mint');
       await this.recordTaskCompletion('nft_minter', 'Record NFT mint');
-      return { rankKey, rankId: sig.rank_id, hash: tx.hash, confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+      // Update mint cache so future scans know this rank is minted
+      try {
+        const cache = readJson(MINT_CACHE_FILE, { rows: [] });
+        const row = cache.rows.find((r) => r.badgeKey === rankKey);
+        if (row) { row.minted = true; row.backendReady = true; writeJson(MINT_CACHE_FILE, cache); }
+      } catch {}
+      return { rankKey, rankId, hash: tx.hash, confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
     }, { detail: rankKey, txMeta: true });
   }
 
@@ -761,7 +772,14 @@ class DACBot {
       try { const result = await this.mintRank(rankKey); return { ok: true, attempt, ...result }; }
       catch (error) {
         lastError = error;
-        try { const scan = await this.getMintableRanks(); const row = scan.find((item) => item.badgeKey === rankKey); if (row?.minted) return { ok: true, attempt, rankKey, recovered: true, alreadyMinted: true, rankId: row.rankId }; if (row && !row.backendReady && /already minted/i.test(row.backendError || '')) return { ok: true, attempt, rankKey, recovered: true, alreadyMinted: true, rankId: row.rankId }; } catch {}
+        // Lightweight recovery: just check hasMinted for this rank, don't re-scan all
+        try {
+          const rank = RANKS.find((r) => r.badgeKey === rankKey);
+          if (rank && this.nft && this.wallet) {
+            const minted = await this.nft.hasMinted(this.wallet.address, rank.id);
+            if (minted) return { ok: true, attempt, rankKey, recovered: true, alreadyMinted: true, rankId: rank.id };
+          }
+        } catch {}
         if (/Already minted/i.test(error.message || '')) return { ok: true, attempt, rankKey, recovered: true, alreadyMinted: true };
         if (attempt < attempts) { const delay = this.fastMode ? 0 : attempt * 1500; if (delay > 0) { this.log(`  Mint ${rankKey} failed on attempt ${attempt}/${attempts}: ${error.message}`); this.log(`     Retrying after ${delay}ms...`); await sleep(delay); } }
       }
@@ -801,7 +819,6 @@ class DACBot {
       this.log(`\n=== Campaign loop ${i + 1}/${campaign.loops} ===`);
       const before = await this.status();
       const strategyPlan = await this.runStrategy({ profileName: campaign.strategyProfile });
-      await this.run({ strategy: false, profile: campaign.strategyProfile, tasks: true, badges: true, faucet: true, crates: true, mintScan: true });
       const minted = await this.mintAllEligibleRanks();
       const tracking = await this.snapshotTracking();
       const after = await this.status();
@@ -820,21 +837,27 @@ class DACBot {
     const spendable = balance > reserve ? balance - reserve : 0n;
     const actions = [], notes = [];
     notes.push(`profile=${config.profileName} balance=${fmtNum(status.dacc)} reserve=${config.reserveDacc} spendable=${fmtNum(ethers.formatEther(spendable))}`);
-    notes.push('decision order: tx grind -> stake/burn surplus -> crates');
+    notes.push('decision order: sync -> explore -> tasks -> badges -> faucet -> tx grind -> stake/burn surplus -> crates -> mint scan');
+    // Always include web automation steps so strategy mode is truly comprehensive
+    actions.push({ type: 'sync', reason: 'ensure latest account state before planning' });
+    actions.push({ type: 'explore', reason: 'exploration yields free QE via page visits' });
+    actions.push({ type: 'tasks', reason: 'social tasks yield free QE' });
+    actions.push({ type: 'badges', reason: 'claim any newly unlocked badges' });
+    if (!status.faucetAvailable && status.faucetCooldownSeconds <= 300) actions.push({ type: 'faucet', reason: 'faucet may be available or close to cooldown' });
+    else if (status.faucetAvailable) actions.push({ type: 'faucet', reason: 'faucet is available' });
     const txBudget = ethers.parseEther(String(config.txAmount)) * BigInt(config.txCount);
-    const lowTxCount = status.txCount < 3;
-    if (this.wallet && spendable >= txBudget && lowTxCount) actions.push({ type: 'tx-grind', count: config.txCount, amount: config.txAmount, reason: 'low transaction count; use minimal surplus to push tx badges first' });
-    const remainingAfterTx = spendable > txBudget ? spendable - txBudget : spendable;
+    if (this.wallet && spendable >= txBudget && status.txCount < 10) actions.push({ type: 'tx-grind', count: config.txCount, amount: config.txAmount, reason: 'low transaction count; grind minimal surplus for tx badges' });
     const minStake = ethers.parseEther(String(config.minStakeAmount));
     const minBurn = ethers.parseEther(String(config.minBurnAmount));
-    const stakeAmount = (remainingAfterTx * BigInt(Math.floor(config.stakeRatio * 10000))) / 10000n;
-    const burnAmount = (remainingAfterTx * BigInt(Math.floor(config.burnRatio * 10000))) / 10000n;
+    const stakeAmount = (spendable * BigInt(Math.floor(config.stakeRatio * 10000))) / 10000n;
+    const burnAmount = (spendable * BigInt(Math.floor(config.burnRatio * 10000))) / 10000n;
     const maxSingleAction = ethers.parseEther('0.25');
     const cappedStake = stakeAmount > maxSingleAction ? maxSingleAction : stakeAmount;
     const cappedBurn = burnAmount > maxSingleAction ? maxSingleAction : burnAmount;
-    if (this.wallet && cappedStake >= minStake) actions.push({ type: 'stake', amount: ethers.formatEther(cappedStake), reason: 'stake a capped share of surplus DACC for safer long-tail progression' });
-    if (this.wallet && cappedBurn >= minBurn) actions.push({ type: 'burn', amount: ethers.formatEther(cappedBurn), reason: 'burn a capped share of surplus DACC to convert into QE without over-spending' });
+    if (this.wallet && cappedStake >= minStake) actions.push({ type: 'stake', amount: ethers.formatEther(cappedStake), reason: 'stake a capped share of surplus DACC for long-tail progression' });
+    if (this.wallet && cappedBurn >= minBurn) actions.push({ type: 'burn', amount: ethers.formatEther(cappedBurn), reason: 'burn a capped share of surplus DACC to convert into QE' });
     if (status.qe >= (crateHistory.cost_per_open || 150) && (crateHistory.opens_today || 0) < (crateHistory.daily_open_limit || 5)) actions.push({ type: 'crates', reason: 'QE is high enough and daily crate capacity remains' });
+    actions.push({ type: 'mint-scan', reason: 'scan for any newly eligible rank NFTs' });
     return { actions, notes, config };
   }
 
@@ -853,10 +876,47 @@ class DACBot {
     if (!plan.actions.length) this.log('  No actions selected');
     else plan.actions.forEach((action, idx) => this.log(`  ${idx + 1}. ${action.type}${action.amount ? ` (${fmtNum(action.amount)} DACC)` : ''} -- ${action.reason}`));
     for (const action of plan.actions) {
-      if (action.type === 'tx-grind') await this.grindTransactions({ count: action.count, amount: action.amount });
-      else if (action.type === 'stake') { try { const result = await this.stakeDacc(action.amount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake skipped: ${formatErrorMessage(error)}`); } }
-      else if (action.type === 'burn') { try { const result = await this.burnForQE(action.amount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { this.log(`  Burn skipped: ${formatErrorMessage(error)}`); } }
-      else if (action.type === 'crates') await this.runCrates();
+      if (action.type === 'sync') {
+        this.log('\n🔄 Syncing...');
+        const sync = await this.sync();
+        this.invalidateRuntimeCache(['profile', 'status']);
+        if (sync.success) this.log(`  DACC=${sync.dacc_balance}, txns=${sync.tx_count}`);
+      } else if (action.type === 'explore') {
+        this.log('\n  Exploration...');
+        try { await this.runExploration(); } catch (error) { this.log(`  Exploration: ${formatErrorMessage(error)}`); }
+      } else if (action.type === 'tasks') {
+        this.log('\n  Tasks...');
+        try { await this.runSocialTasks(); } catch (error) { this.log(`  Tasks: ${formatErrorMessage(error)}`); }
+      } else if (action.type === 'badges') {
+        this.log('\n  Badges...');
+        try { await this.runBadgeClaim(); } catch (error) { this.log(`  Badges: ${formatErrorMessage(error)}`); }
+      } else if (action.type === 'faucet') {
+        this.log('\n  Faucet...');
+        try { await this.runFaucet(); } catch (error) { this.log(`  Faucet: ${formatErrorMessage(error)}`); }
+      } else if (action.type === 'tx-grind') {
+        await this.grindTransactions({ count: action.count, amount: action.amount });
+      } else if (action.type === 'stake') {
+        try { const result = await this.stakeDacc(action.amount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake skipped: ${formatErrorMessage(error)}`); }
+      } else if (action.type === 'burn') {
+        try { const result = await this.burnForQE(action.amount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { this.log(`  Burn skipped: ${formatErrorMessage(error)}`); }
+      } else if (action.type === 'crates') {
+        await this.runCrates();
+      } else if (action.type === 'mint-scan') {
+        this.log('\n  Mint Scan...');
+        try {
+          const mintRows = await this.getMintableRanks();
+          const mintable = mintRows.filter((r) => r.backendReady && !r.minted);
+          this.log(`  ${mintable.length ? `Potentially mintable ranks: ${mintable.map((r) => r.rankName).join(', ')}` : 'No backend-ready rank mints detected yet'}`);
+          if (mintable.length) {
+            this.log('\n  Auto-minting backend-ready ranks...');
+            const minted = await this.mintAllEligibleRanks(mintRows);
+            const okCount = (minted.results || []).filter((row) => row.ok).length;
+            const failCount = (minted.results || []).filter((row) => !row.ok).length;
+            this.log(`  Auto-mint complete: ${okCount} success, ${failCount} failed`);
+            this.invalidateRuntimeCache(['profile', 'status']);
+          }
+        } catch (error) { this.log(`  Mint Scan: ${formatErrorMessage(error)}`); }
+      }
     }
     allStrategies[this.accountName || 'default'] = config;
     writeJson(STRATEGY_FILE, allStrategies);
@@ -878,20 +938,6 @@ class DACBot {
     await this.ensureSession(false);
     let strategyPlan = null;
 
-    if (strategy) {
-      advanceStep('strategy', `Strategy warmup (${profile})`);
-      try {
-        strategyPlan = await this._track(`Strategy warmup (${profile})`, async () => {
-          this.log('\n  Strategy warmup...');
-          const plan = await this.runStrategy({ profileName: profile, txCount, txAmount, ...(burnAmount ? { minBurnAmount: burnAmount } : {}), ...(stakeAmount ? { minStakeAmount: stakeAmount } : {}) });
-          this.invalidateRuntimeCache(['profile', 'status']);
-          return plan;
-        });
-      } catch (error) {
-        this.log(`  Strategy: ${formatErrorMessage(error)}`);
-      }
-    }
-
     const before = await this._track('Fetch status', async () => {
       const s = await this.status();
       if (s.error) throw new Error(s.error);
@@ -911,45 +957,92 @@ class DACBot {
     if (!before.faucetAvailable) this.log(`  Faucet cooldown: ${humanCooldown(before.faucetCooldownSeconds || 0)}`);
     if (this.wallet) this.log(`  Signer: ${this.wallet.address}`);
 
-    await this._track('Sync account', async () => {
-      advanceStep('sync', 'Sync account state');
-      const sync = await this.sync();
-      this.invalidateRuntimeCache(['profile', 'status']);
-      if (sync.success) this.log(`  DACC=${sync.dacc_balance}, txns=${sync.tx_count}`);
-      else this.log(`  Sync: ${sync.error || 'unknown error'}`);
-      return sync;
-    });
+    if (strategy) {
+      advanceStep('strategy', `Strategy warmup (${profile})`);
+      try {
+        strategyPlan = await this._track(`Strategy warmup (${profile})`, async () => {
+          this.log('\n  Strategy warmup...');
+          const plan = await this.runStrategy({ profileName: profile, txCount, txAmount, ...(burnAmount ? { minBurnAmount: burnAmount } : {}), ...(stakeAmount ? { minStakeAmount: stakeAmount } : {}) });
+          this.invalidateRuntimeCache(['profile', 'status']);
+          return plan;
+        });
+      } catch (error) {
+        this.log(`  Strategy: ${formatErrorMessage(error)}`);
+      }
+      // Strategy already ran sync, explore, tasks, badges, faucet, tx, stake, burn, crates, mint
+      // Only run steps NOT covered by strategy (receive, mesh) and any explicit overrides
+    } else {
+      // Normal non-strategy flow
+      await this._track('Sync account', async () => {
+        advanceStep('sync', 'Sync account state');
+        const sync = await this.sync();
+        this.invalidateRuntimeCache(['profile', 'status']);
+        if (sync.success) this.log(`  DACC=${sync.dacc_balance}, txns=${sync.tx_count}`);
+        else this.log(`  Sync: ${sync.error || 'unknown error'}`);
+        return sync;
+      });
 
-    await this._track('Exploration', async () => {
-      advanceStep('explore', 'Run exploration checks');
-      this.log('\n  Exploration...');
-      return this.runExploration();
-    });
+      await this._track('Exploration', async () => {
+        advanceStep('explore', 'Run exploration checks');
+        this.log('\n  Exploration...');
+        return this.runExploration();
+      });
 
-    if (tasks) {
-      advanceStep('tasks', 'Complete social tasks');
-      this.log('\n  Tasks...');
-      try { await this.runSocialTasks(); } catch (error) { this.log(`  Tasks: ${formatErrorMessage(error)}`); }
+      if (tasks) {
+        advanceStep('tasks', 'Complete social tasks');
+        this.log('\n  Tasks...');
+        try { await this.runSocialTasks(); } catch (error) { this.log(`  Tasks: ${formatErrorMessage(error)}`); }
+      }
+
+      if (badges) {
+        advanceStep('badges', 'Claim badges');
+        this.log('\n  Badges...');
+        try { await this.runBadgeClaim(); } catch (error) { this.log(`  Badges: ${formatErrorMessage(error)}`); }
+      }
+
+      if (faucet) {
+        advanceStep('faucet', 'Claim faucet');
+        this.log('\n  Faucet...');
+        try { await this.runFaucet(); } catch (error) { this.log(`  Faucet: ${formatErrorMessage(error)}`); }
+      }
+
+      if (txGrind) {
+        advanceStep('txGrind', `Send TX x${txCount}`);
+        this.log('\n  TX Grind...');
+        try { await this.grindTransactions({ count: txCount, amount: txAmount }); } catch (error) { this.log(`  TX Grind: ${formatErrorMessage(error)}`); }
+      }
+
+      if (burnAmount) {
+        advanceStep('burn', `Burn ${burnAmount} DACC`);
+        this.log('\n  Burn for QE...');
+        try { const result = await this.burnForQE(burnAmount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { this.log(`  Burn: ${formatErrorMessage(error)}`); }
+      }
+
+      if (stakeAmount) {
+        advanceStep('stake', `Stake ${stakeAmount} DACC`);
+        this.log('\n  Stake DACC...');
+        try { const result = await this.stakeDacc(stakeAmount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake: ${formatErrorMessage(error)}`); }
+      }
+
+      if (mintScan) {
+        advanceStep('mintScan', 'Scan and auto-mint eligible ranks');
+        this.log('\n  Mint Scan...');
+        try {
+          const mintRows = await this.getMintableRanks();
+          const mintable = mintRows.filter((r) => r.backendReady && !r.minted);
+          this.log(`  ${mintable.length ? `Potentially mintable ranks: ${mintable.map((r) => r.rankName).join(', ')}` : 'No backend-ready rank mints detected yet'}`);
+          if (mintable.length) { this.log('\n  Auto-minting backend-ready ranks...'); const minted = await this.mintAllEligibleRanks(mintRows); const okCount = (minted.results || []).filter((row) => row.ok).length; const failCount = (minted.results || []).filter((row) => !row.ok).length; this.log(`  Auto-mint complete: ${okCount} success, ${failCount} failed`); this.invalidateRuntimeCache(['profile', 'status']); }
+        } catch (error) { this.log(`  Mint Scan: ${formatErrorMessage(error)}`); }
+      }
+
+      if (crates) {
+        advanceStep('crates', 'Open crates');
+        this.log('\n  Crates...');
+        try { await this.runCrates(); } catch (error) { this.log(`  Crates: ${formatErrorMessage(error)}`); }
+      }
     }
 
-    if (badges) {
-      advanceStep('badges', 'Claim badges');
-      this.log('\n  Badges...');
-      try { await this.runBadgeClaim(); } catch (error) { this.log(`  Badges: ${formatErrorMessage(error)}`); }
-    }
-
-    if (faucet) {
-      advanceStep('faucet', 'Claim faucet');
-      this.log('\n  Faucet...');
-      try { await this.runFaucet(); } catch (error) { this.log(`  Faucet: ${formatErrorMessage(error)}`); }
-    }
-
-    if (txGrind) {
-      advanceStep('txGrind', `Send TX x${txCount}`);
-      this.log('\n  TX Grind...');
-      try { await this.grindTransactions({ count: txCount, amount: txAmount }); } catch (error) { this.log(`  TX Grind: ${formatErrorMessage(error)}`); }
-    }
-
+    // These are NOT part of strategy, run them regardless
     if (receive) {
       advanceStep('receive', `Receive quest x${receiveCount}`);
       this.log('\n  Receive quest...');
@@ -960,35 +1053,6 @@ class DACBot {
       advanceStep('mesh', `Mesh loop x${meshCount}`);
       this.log('\n  Send + receive mesh...');
       try { await this.txMesh({ count: meshCount, amount: meshAmount }); } catch (error) { this.log(`  Mesh: ${formatErrorMessage(error)}`); }
-    }
-
-    if (burnAmount) {
-      advanceStep('burn', `Burn ${burnAmount} DACC`);
-      this.log('\n  Burn for QE...');
-      try { const result = await this.burnForQE(burnAmount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { this.log(`  Burn: ${formatErrorMessage(error)}`); }
-    }
-
-    if (stakeAmount) {
-      advanceStep('stake', `Stake ${stakeAmount} DACC`);
-      this.log('\n  Stake DACC...');
-      try { const result = await this.stakeDacc(stakeAmount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake: ${formatErrorMessage(error)}`); }
-    }
-
-    if (mintScan) {
-      advanceStep('mintScan', 'Scan and auto-mint eligible ranks');
-      this.log('\n  Mint Scan...');
-      try {
-        const mintRows = await this.getMintableRanks();
-        const mintable = mintRows.filter((r) => r.backendReady && !r.minted);
-        this.log(`  ${mintable.length ? `Potentially mintable ranks: ${mintable.map((r) => r.rankName).join(', ')}` : 'No backend-ready rank mints detected yet'}`);
-        if (mintable.length) { this.log('\n  Auto-minting backend-ready ranks...'); const minted = await this.mintAllEligibleRanks(mintRows); const okCount = (minted.results || []).filter((row) => row.ok).length; const failCount = (minted.results || []).filter((row) => !row.ok).length; this.log(`  Auto-mint complete: ${okCount} success, ${failCount} failed`); this.invalidateRuntimeCache(['profile', 'status']); }
-      } catch (error) { this.log(`  Mint Scan: ${formatErrorMessage(error)}`); }
-    }
-
-    if (crates) {
-      advanceStep('crates', 'Open crates');
-      this.log('\n  Crates...');
-      try { await this.runCrates(); } catch (error) { this.log(`  Crates: ${formatErrorMessage(error)}`); }
     }
 
     const after = await this._track('Final status', async () => {
