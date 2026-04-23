@@ -286,13 +286,16 @@ class AccountProgressMap {
     // Pre-seed empty trackers so queued accounts appear immediately
     for (const name of accountNames) {
       if (!this.trackers.has(name)) {
-        this.trackers.set(name, new StepTracker({ title: `Automation — ${name}`, width: this.width }));
+        const t = new StepTracker({ title: `Automation — ${name}`, width: this.width });
+        t.add('Queued');
+        this.trackers.set(name, t);
       }
     }
   }
 
   createTracker(accountName, title) {
     const tracker = new StepTracker({ title, width: this.width });
+    tracker.add('Starting...');
     this.trackers.set(accountName, tracker);
     return tracker;
   }
@@ -355,7 +358,7 @@ class AccountProgressMap {
       const status = sum.errors > 0 ? color(`${sum.errors} err`, C.error)
         : sum.skipped > 0 ? color(`${sum.skipped} skip`, C.warn)
         : tracker.isComplete() ? color('done', C.success)
-        : sum.total === 0 ? color('queued', C.muted)
+        : sum.pending === sum.total && sum.total > 0 ? color('queued', C.muted)
         : color(`${accPct}%`, C.primary);
 
       lines.push(`  ${prefix} ${nameCol}  ${barMini}  ${status}`);
