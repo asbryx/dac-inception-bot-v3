@@ -43,7 +43,16 @@ function createAutomationService(bot) {
         if (typeof onProgress === 'function') onProgress({ step, ...detail });
       };
       emit('bootstrap', { message: 'starting automation run' });
-      const result = await bot.run({ ...options, progress: (evt) => emit(evt.key || evt.step, evt) });
+      const result = await bot.run({ ...options, progress: (evt) => {
+        // Emit human-readable label as the primary step name, preserving metadata
+        emit(evt.label || evt.key, {
+          key: evt.key,
+          total: evt.total,
+          detail: evt.detail,
+          stepIndex: evt.step,
+          message: evt.label,
+        });
+      }});
       emit('complete', { message: 'automation run complete' });
       return result;
     },

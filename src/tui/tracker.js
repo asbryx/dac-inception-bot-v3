@@ -274,7 +274,7 @@ class LiveTracker {
 
 // ─── Account Progress Map ───────────────────────────────
 // Manages multiple StepTrackers (one per account) and
-// renders a combined live dashboard.
+// renders a combined live dashboard with per-account state.
 
 class AccountProgressMap {
   constructor({ title = 'Multi-Account Progress', width = 96, accountNames = [] } = {}) {
@@ -283,6 +283,7 @@ class AccountProgressMap {
     this.accountNames = accountNames;
     this.trackers = new Map(); // accountName -> StepTracker
     this.proxies = new Map(); // accountName -> { label, source, healthy }
+    this.states = new Map(); // accountName -> { label, index, total, done, error, failedStep, startTime, elapsedMs }
     this.currentAccount = null;
     // Pre-seed empty trackers so queued accounts appear immediately
     for (const name of accountNames) {
@@ -297,7 +298,7 @@ class AccountProgressMap {
   createTracker(accountName, title) {
     const existing = this.trackers.get(accountName);
     if (existing) {
-      // Preserve pre-seeded tracker; transition Queued -> Starting
+      // Preserve pre-seeded tracker; mark Queued as done, add Starting
       const queued = existing.steps.find((s) => s.label === 'Queued');
       if (queued) {
         queued.label = 'Starting...';
@@ -327,35 +328,65 @@ class AccountProgressMap {
     this.proxies.set(accountName, { label: label || 'none', source: source || 'none', healthy: healthy !== false });
   }
 
+  // ─── Lightweight dashboard state ──────────────────────
+
+  setState(accountName, { label, index, total } = {}) {
+    const s = this.states.get(accountName) || {};
+    if (!s.startTime) s.startTime = Date.now();
+    if (label !== undefined) s.label = label;
+    if (index !== undefined) s.index = index;
+    if (total !== undefined) s.total = total;
+    this.states.set(accountName, s);
+  }
+
+  setDone(accountName) {
+    const s = this.states.get(accountName) || {};
+    s.done = true;
+    s.elapsedMs = Date.now() - (s.startTime || Date.now());
+    this.states.set(accountName, s);
+  }
+
+  setError(accountName, { failedStep, error } = {}) {
+    const s = this.states.get(accountName) || {};
+    s.error = error;
+    s.failedStep = failedStep;
+    s.elapsedMs = Date.now() - (s.startTime || Date.now());
+    this.states.set(accountName, s);
+  }
+
+  // ─── Rendering ────────────────────────────────────────
+
   render() {
     const w = clampWidth(this.width);
     const inner = w - 2;
     const lines = [];
 
     const entries = Array.from(this.trackers.entries());
-    const doneCount = entries.filter(([, t]) => t.isComplete()).length;
-    const errCount = entries.filter(([, t]) => {
-      const s = t.summary();
-      return s.errors > 0;
-    }).length;
     const total = this.accountNames.length || entries.length;
-    const runningCount = entries.filter(([, t]) => {
-      const s = t.summary();
-      return s.running > 0;
-    }).length;
-    const queuedCount = total - doneCount - runningCount;
+
+    // Categorize accounts using state first, tracker fallback
+    let doneCount = 0;
+    let errCount = 0;
+    let runningCount = 0;
+    for (const [name] of entries) {
+      const state = this.states.get(name);
+      if (state?.done) { doneCount++; }
+      else if (state?.error) { errCount++; }
+      else if (state?.label || this.getTracker(name)?.summary().running > 0) { runningCount++; }
+    }
+    const queuedCount = total - doneCount - errCount - runningCount;
 
     // Header stats
-    const pct = total ? Math.round((doneCount / total) * 100) : 0;
-    const bar = this._miniBar(pct, 18);
+    const overallPct = total ? Math.round(((doneCount + errCount) / total) * 100) : 0;
+    const bar = this._miniBar(overallPct, 18);
     lines.push(
-      `  ${color('Accounts:', C.label)} ${color(`${doneCount}/${total}`, C.primary)}  ${bar}  ${color(`${pct}%`, C.primary)}`,
+      `  ${color('Accounts:', C.label)} ${color(`${doneCount + errCount + runningCount}/${total}`, C.primary)}  ${bar}  ${color(`${overallPct}%`, C.primary)}`,
       `  ${color('Done:', C.label)} ${color(String(doneCount), C.success)}  ${color('Run:', C.label)} ${color(String(runningCount), C.primary)}  ${color('Fail:', C.label)} ${color(String(errCount), C.error)}  ${color('Queue:', C.label)} ${color(String(queuedCount), C.muted)}`,
       '',
     );
 
-    // Determine how many we can show (reserve ~8 lines for header + footer)
-    const maxVisible = Math.max(12, Math.min(this.accountNames.length, 30));
+    // Determine how many we can show
+    const maxVisible = Math.max(10, Math.min(this.accountNames.length, 28));
     let visible = entries.slice(0, maxVisible);
     if (entries.length > maxVisible) {
       visible = entries.slice(0, maxVisible - 1);
@@ -369,18 +400,47 @@ class AccountProgressMap {
         continue;
       }
       const isCurrent = name === this.currentAccount;
+      const state = this.states.get(name) || {};
       const sum = tracker.summary();
-      const prefix = isCurrent ? color('▶', C.primary) : ' ';
-      const nameCol = color(name, isCurrent ? C.value : C.muted);
-      const accPct = sum.total ? Math.round((sum.done + sum.errors + sum.skipped) / sum.total * 100) : 0;
-      const barMini = this._miniBar(accPct, 10);
-      const status = sum.errors > 0 ? color(`${sum.errors} err`, C.error)
-        : sum.skipped > 0 ? color(`${sum.skipped} skip`, C.warn)
-        : tracker.isComplete() ? color('done', C.success)
-        : sum.pending === sum.total && sum.total > 0 ? color('queued', C.muted)
-        : color(`${accPct}%`, C.primary);
 
-      // Proxy indicator
+      // Status symbol
+      let sym;
+      if (state.done) sym = color('✓', C.success);
+      else if (state.error) sym = color('✗', C.error);
+      else if (isCurrent) sym = color('▶', C.primary);
+      else if (state.label) sym = color('◐', C.primary);
+      else sym = color('○', C.muted);
+
+      const nameCol = color(name, isCurrent ? `${ANSI.bold}${C.value}` : C.value);
+
+      // Build step description
+      let stepText = '';
+      let pct = 0;
+      if (state.done) {
+        const elapsed = state.elapsedMs ? this._fmtTime(state.elapsedMs) : '';
+        stepText = `${color('Done', C.success)} ${color(`(${state.total || sum.total || '?'} steps)`, C.muted)}${elapsed ? ` ${color(elapsed, C.muted)}` : ''}`;
+        pct = 100;
+      } else if (state.error) {
+        const failedLabel = state.failedStep || state.label || '?';
+        let errDisplay = state.error;
+        if (errDisplay.length > 28) errDisplay = errDisplay.slice(0, 25) + '...';
+        stepText = `${color(`Failed at: ${failedLabel}`, C.error)} ${color(`— ${errDisplay}`, C.errorText)}`;
+        pct = Math.round(((state.index || 0) / (state.total || 1)) * 100);
+      } else if (state.label) {
+        const idx = state.index ?? '?';
+        const tot = state.total ?? '?';
+        stepText = `${color(`Step ${idx}/${tot}:`, C.label)} ${color(state.label, C.primary)}`;
+        pct = Math.round(((state.index || 0) / (state.total || 1)) * 100);
+      } else if (sum.running > 0 || sum.done > 0) {
+        const finished = sum.done + sum.errors + sum.skipped;
+        stepText = `${color(`${finished}/${sum.total} steps`, C.primary)}`;
+        pct = sum.total ? Math.round((finished / sum.total) * 100) : 0;
+      } else {
+        stepText = color('queued', C.muted);
+        pct = 0;
+      }
+
+      // Proxy badge
       const proxyInfo = this.proxies.get(name);
       const proxyBadge = proxyInfo
         ? proxyInfo.healthy
@@ -388,19 +448,40 @@ class AccountProgressMap {
           : color(`[${proxyInfo.label}]`, C.error)
         : color('[no proxy]', C.muted);
 
-      lines.push(`  ${prefix} ${nameCol}  ${barMini}  ${status}  ${proxyBadge}`);
+      const barMini = this._miniBar(pct, 10);
+      const pctStr = color(String(pct).padStart(3), pct >= 80 ? C.success : pct >= 40 ? C.warn : C.primary);
 
-      // Show current running step (only for current account to save space)
-      const running = tracker.steps.find((s) => s.status === STATUS.RUNNING);
-      if (running && isCurrent) {
-        lines.push(`      ${color(S.pipe, C.muted)} ${color(running.label, C.muted)} ${running.detail ? color(`| ${running.detail}`, C.muted) : ''}`);
+      // Compose row with dynamic truncation for step text
+      const fixedPartsWidth = stripAnsi(`  ${sym} ${name}  ${barMini}  ${pctStr}%  ${proxyBadge}`).length;
+      const maxStepWidth = Math.max(12, inner - fixedPartsWidth - 4);
+      let cleanStep = stripAnsi(stepText);
+      if (cleanStep.length > maxStepWidth) {
+        // Truncate the colored stepText intelligently
+        let truncated = '';
+        let plainLen = 0;
+        const ansiRegex = /\x1b\[[0-9;]*m/g;
+        const parts = stepText.split(ansiRegex);
+        const codes = stepText.match(ansiRegex) || [];
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const code = codes[i] || '';
+          const remaining = maxStepWidth - plainLen - 3;
+          if (remaining <= 0) break;
+          if (part.length <= remaining) {
+            truncated += code + part;
+            plainLen += part.length;
+          } else {
+            truncated += code + part.slice(0, remaining) + '...';
+            plainLen += remaining + 3;
+            break;
+          }
+        }
+        // Close any open ANSI codes
+        truncated += '\x1b[0m';
+        stepText = truncated;
       }
 
-      // Show last TX if any (only for current account)
-      const lastTx = tracker.steps.slice().reverse().find((s) => s.txHash);
-      if (lastTx && isCurrent) {
-        lines.push(`      ${color(S.arrow, C.muted)} ${color(shortHash(lastTx.txHash), C.primary)}`);
-      }
+      lines.push(`  ${sym} ${nameCol}  ${stepText}  ${barMini}  ${pctStr}%  ${proxyBadge}`);
     }
 
     return box(`${S.diamond} ${this.title}`, lines, w);
@@ -412,6 +493,14 @@ class AccountProgressMap {
     const bar = `${'█'.repeat(filled)}${'░'.repeat(empty)}`;
     const tone = pct >= 80 ? C.success : pct >= 40 ? C.warn : C.primary;
     return color(bar, tone);
+  }
+
+  _fmtTime(ms) {
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    const m = Math.floor(ms / 60000);
+    const s = ((ms % 60000) / 1000).toFixed(0);
+    return `${m}m${s.padStart(2, '0')}s`;
   }
 }
 

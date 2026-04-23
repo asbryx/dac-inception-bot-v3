@@ -255,6 +255,12 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
           tracker.fail(step.id, new Error(error));
         }
       }
+      if (ok) {
+        progressMap.setDone(account);
+      } else {
+        const lastErrStep = tracker?.steps?.slice().reverse().find((s) => s.status === 'error');
+        progressMap.setError(account, { failedStep: lastErrStep?.label || progressMap.states.get(account)?.label || 'unknown', error });
+      }
       progressMap.setCurrent(null);
       if (useVisual) {
         throttledRender();
@@ -262,18 +268,16 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
         console.log(renderAccountRow({ account, index, total, ok, error }));
       }
     },
-    onProgress: ({ account, step, message }) => {
-      const tracker = progressMap.getTracker(account);
-      if (tracker && step) {
-        const existing = tracker.steps.find((s) => s.label === step && s.status === 'pending');
-        if (existing) tracker.start(existing.id);
-        else tracker.add(step, { detail: message });
-      }
+    onProgress: ({ account, step, message, total, stepIndex, key, detail }) => {
+      // Update lightweight dashboard state with human-readable progress
+      progressMap.setState(account, { label: step, index: stepIndex, total });
       progressMap.setCurrent(account);
       if (useVisual) {
         throttledRender();
-      } else if (!quiet && step && message) {
-        console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(step, C.primary)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
+      } else if (!quiet && step) {
+        const idx = stepIndex ?? '?';
+        const tot = total ?? '?';
+        console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(`Step ${idx}/${tot}: ${step}`, C.primary)} ${detail ? color(`| ${detail}`, C.muted) : ''}`);
       }
     },
     prepareContext: (accountName, context) => {
