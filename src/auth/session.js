@@ -2,13 +2,25 @@ function normalizeCookieDomain(domain = '') {
   return String(domain || '').replace(/^\./, '');
 }
 
+const COOKIE_ATTRIBUTE_NAMES = new Set([
+  'domain',
+  'expires',
+  'httponly',
+  'max-age',
+  'path',
+  'samesite',
+  'secure',
+]);
+
 function parseCookieString(cookieString = '') {
   const cookies = {};
   for (const part of String(cookieString || '').split(';')) {
     const trimmed = part.trim();
     if (!trimmed.includes('=')) continue;
     const index = trimmed.indexOf('=');
-    cookies[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1).trim();
+    const name = trimmed.slice(0, index).trim();
+    if (COOKIE_ATTRIBUTE_NAMES.has(name.toLowerCase())) continue;
+    cookies[name] = trimmed.slice(index + 1).trim();
   }
   return cookies;
 }

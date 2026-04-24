@@ -83,6 +83,7 @@ async function fetchApiPayload(bot, apiPath, { method = 'GET', body } = {}) {
     }
     return await fetchOnce(bot, apiPath, { method, body });
   } catch (error) {
+    if (error.payload) return error.payload;
     if (error.code === 'REQUEST_TIMEOUT') {
       const fallback = getFallbackPayload(bot, apiPath);
       if (fallback) {

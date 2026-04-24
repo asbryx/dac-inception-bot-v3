@@ -53,3 +53,26 @@ test('read endpoints retry retryable http statuses', async () => {
   assert.equal(result.ok, true);
   assert.equal(result._status, 200);
 });
+
+
+test('read endpoints return final retryable payload after retries are exhausted', async () => {
+  let calls = 0;
+  const bot = {
+    apiBase: 'https://example.invalid',
+    fastMode: true,
+    apiClient: {
+      fetchWithSession: async () => {
+        calls += 1;
+        return { status: 503 };
+      },
+      fetchJsonResponse: async () => ({ error: 'still down' }),
+    },
+    getCachedValue: () => null,
+  };
+
+  const result = await fetchApiPayload(bot, '/profile/', { method: 'GET' });
+
+  assert.equal(calls, 2);
+  assert.equal(result._status, 503);
+  assert.equal(result.error, 'still down');
+});
