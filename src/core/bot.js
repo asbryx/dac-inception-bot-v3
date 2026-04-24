@@ -328,6 +328,10 @@ class DACBot {
 
   log(message) { if (this.verbose) console.log(message); }
 
+  reportActivity(detail) {
+    if (typeof this.progressReporter === 'function') this.progressReporter(detail);
+  }
+
   // ─── Step Tracking ────────────────────────────────────
 
   _trackAdd(label, detail = null) {
@@ -866,50 +870,65 @@ class DACBot {
   }
 
   async runStrategy(configOverrides = {}) {
-    const requestedProfile = configOverrides.profileName || DEFAULT_PROFILE;
+    const { progress = null, ...strategyOverrides } = configOverrides;
+    const report = (detail) => { if (typeof progress === 'function') progress(detail); };
+    const requestedProfile = strategyOverrides.profileName || DEFAULT_PROFILE;
     const profileDefaults = STRATEGY_PROFILES[requestedProfile] || STRATEGY_DEFAULTS;
     const allStrategies = readJson(STRATEGY_FILE, {});
     const persisted = allStrategies[this.accountName || 'default'] || {};
-    const persistedProfile = persisted.profileName && !configOverrides.profileName ? persisted.profileName : requestedProfile;
+    const persistedProfile = persisted.profileName && !strategyOverrides.profileName ? persisted.profileName : requestedProfile;
     const effectiveProfileDefaults = STRATEGY_PROFILES[persistedProfile] || profileDefaults;
     // If user explicitly picks a profile, ignore persisted numeric params so profile switch actually works
-    const usePersistedParams = !configOverrides.profileName;
+    const usePersistedParams = !strategyOverrides.profileName;
     const config = usePersistedParams
-      ? { ...effectiveProfileDefaults, ...persisted, ...configOverrides, profileName: persistedProfile }
-      : { ...effectiveProfileDefaults, ...configOverrides, profileName: persistedProfile };
+      ? { ...effectiveProfileDefaults, ...persisted, ...strategyOverrides, profileName: persistedProfile }
+      : { ...effectiveProfileDefaults, ...strategyOverrides, profileName: persistedProfile };
+    report('Fetching status snapshot');
     const status = await this.status();
+    report('Fetching crate history');
     const crateHistory = await this.crateHistory();
+    report('Building strategy plan');
     const plan = this.buildStrategy(status, crateHistory, config);
     this.log(`\n  Strategy: profile=${config.profileName} DACC=${fmtNum(status.dacc)} Reserve=${config.reserveDacc} QE/TX=${status.qe}/${status.txCount}`);
     if (!plan.actions.length) this.log('  No actions selected');
     else plan.actions.forEach((action, idx) => this.log(`  ${idx + 1}. ${action.type}${action.amount ? ` (${fmtNum(action.amount)} DACC)` : ''} -- ${action.reason}`));
     for (const action of plan.actions) {
       if (action.type === 'sync') {
+        report('Running sync');
         this.log('\n🔄 Syncing...');
         const sync = await this.sync();
         this.invalidateRuntimeCache(['profile', 'status']);
         if (sync.success) this.log(`  DACC=${sync.dacc_balance}, txns=${sync.tx_count}`);
       } else if (action.type === 'explore') {
+        report('Running exploration visits');
         this.log('\n  Exploration...');
         try { await this.runExploration(); } catch (error) { this.log(`  Exploration: ${formatErrorMessage(error)}`); }
       } else if (action.type === 'tasks') {
+        report('Completing social tasks');
         this.log('\n  Tasks...');
         try { await this.runSocialTasks(); } catch (error) { this.log(`  Tasks: ${formatErrorMessage(error)}`); }
       } else if (action.type === 'badges') {
+        report('Claiming badges');
         this.log('\n  Badges...');
         try { await this.runBadgeClaim(); } catch (error) { this.log(`  Badges: ${formatErrorMessage(error)}`); }
       } else if (action.type === 'faucet') {
+        report('Checking faucet');
         this.log('\n  Faucet...');
         try { await this.runFaucet(); } catch (error) { this.log(`  Faucet: ${formatErrorMessage(error)}`); }
       } else if (action.type === 'tx-grind') {
+        report(`Sending ${action.count} transactions`);
         await this.grindTransactions({ count: action.count, amount: action.amount });
       } else if (action.type === 'stake') {
+        report(`Staking ${action.amount} DACC`);
         try { const result = await this.stakeDacc(action.amount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake skipped: ${formatErrorMessage(error)}`); }
       } else if (action.type === 'burn') {
+        report(`Burning ${action.amount} DACC`);
         try { const result = await this.burnForQE(action.amount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { this.log(`  Burn skipped: ${formatErrorMessage(error)}`); }
       } else if (action.type === 'crates') {
+        report('Opening crates');
         await this.runCrates();
       } else if (action.type === 'mint-scan') {
+        report('Scanning mintable ranks');
         this.log('\n  Mint Scan...');
         try {
           const mintRows = await this.getMintableRanks();
@@ -937,10 +956,13 @@ class DACBot {
     // Backward-compat progress callback
     const plannedSteps = collectRunStepPlan({ crates, faucet, tasks, badges, txGrind, txCount, burnAmount, stakeAmount, mintScan, receive, receiveCount, mesh, meshCount });
     let currentStep = 0;
+    const publishProgress = (key, label, detail = null) => {
+      if (progress) progress({ step: currentStep, total: plannedSteps.length || 1, label, detail, key });
+    };
     const advanceStep = (key, label, detail = null) => {
       const stepIndex = plannedSteps.findIndex((item) => item.key === key);
       currentStep = stepIndex >= 0 ? stepIndex + 1 : Math.min(currentStep + 1, plannedSteps.length || 1);
-      if (progress) progress({ step: currentStep, total: plannedSteps.length || 1, label, detail, key });
+      publishProgress(key, label, detail);
     };
 
     await this.ensureSession(false);
@@ -970,9 +992,22 @@ class DACBot {
       try {
         strategyPlan = await this._track(`Strategy warmup (${profile})`, async () => {
           this.log('\n  Strategy warmup...');
-          const plan = await this.runStrategy({ profileName: profile, txCount, txAmount, ...(burnAmount ? { minBurnAmount: burnAmount } : {}), ...(stakeAmount ? { minStakeAmount: stakeAmount } : {}) });
-          this.invalidateRuntimeCache(['profile', 'status']);
-          return plan;
+          const previousReporter = this.progressReporter;
+          this.progressReporter = (detail) => publishProgress('strategy', `Strategy warmup (${profile})`, detail);
+          try {
+            const plan = await this.runStrategy({
+              profileName: profile,
+              txCount,
+              txAmount,
+              ...(burnAmount ? { minBurnAmount: burnAmount } : {}),
+              ...(stakeAmount ? { minStakeAmount: stakeAmount } : {}),
+              progress: this.progressReporter,
+            });
+            this.invalidateRuntimeCache(['profile', 'status']);
+            return plan;
+          } finally {
+            this.progressReporter = previousReporter;
+          }
         });
       } catch (error) {
         this.log(`  Strategy: ${formatErrorMessage(error)}`);

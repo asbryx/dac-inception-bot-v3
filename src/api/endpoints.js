@@ -34,6 +34,7 @@ function buildTimeoutMessage(method, apiPath, timeoutMs) {
 
 async function fetchOnce(bot, apiPath, { method = 'GET', body } = {}) {
   const timeoutMs = getApiTimeoutMs(apiPath);
+  if (typeof bot.reportActivity === 'function') bot.reportActivity(`${method} ${apiPath}`);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -44,6 +45,7 @@ async function fetchOnce(bot, apiPath, { method = 'GET', body } = {}) {
     });
     const payload = await bot.apiClient.fetchJsonResponse(response);
     payload._status = response.status;
+    if (typeof bot.reportActivity === 'function') bot.reportActivity(`${method} ${apiPath} -> ${response.status}`);
     return payload;
   } catch (error) {
     if (error.name === 'AbortError') {

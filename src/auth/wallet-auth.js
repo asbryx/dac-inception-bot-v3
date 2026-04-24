@@ -41,6 +41,7 @@ async function walletLogin(bot, { force = false, baseUrl }) {
   }
 
   if (!csrf) {
+    if (typeof bot.reportActivity === 'function') bot.reportActivity('Wallet auth: fetching CSRF');
     const csrfResponse = await bot.fetchWithSession(`${baseUrl}/`, {
       method: 'GET',
       sessionOverride: {
@@ -53,6 +54,7 @@ async function walletLogin(bot, { force = false, baseUrl }) {
     csrf = parseCookieString(cookieString).csrftoken || null;
     if (!csrf) throw new Error('Wallet auth bootstrap failed: missing CSRF cookie');
     const bootstrapCookies = cookieString;
+    if (typeof bot.reportActivity === 'function') bot.reportActivity('Wallet auth: posting wallet');
     const bootstrapResponse = await bot.fetchWithSession(`${baseUrl}/api/auth/wallet/`, {
       method: 'POST',
       headers: { 'x-csrftoken': csrf },
@@ -80,6 +82,7 @@ async function walletLogin(bot, { force = false, baseUrl }) {
     return bootstrapPayload;
   }
 
+  if (typeof bot.reportActivity === 'function') bot.reportActivity('Wallet auth: refreshing session');
   const response = await bot.fetchWithSession(`${baseUrl}/api/auth/wallet/`, {
     method: 'POST',
     body: { wallet_address: bot.walletAddress },
