@@ -52,7 +52,13 @@ async function walletLogin(bot, { force = false, baseUrl }) {
     });
     applyResponseCookies(csrfResponse);
     csrf = parseCookieString(cookieString).csrftoken || null;
-    if (!csrf) throw new Error('Wallet auth bootstrap failed: missing CSRF cookie');
+    if (!csrf) {
+      // DAC currently accepts this bootstrap token when no CSRF cookie is issued yet.
+      csrf = '00000000000000000000000000000000';
+      cookieString = mergeCookieStrings(cookieString, `csrftoken=${csrf}`);
+      cookieHeader = buildCookieHeader(cookieString);
+      if (typeof bot.reportActivity === 'function') bot.reportActivity('Wallet auth: using fallback CSRF bootstrap');
+    }
     const bootstrapCookies = cookieString;
     if (typeof bot.reportActivity === 'function') bot.reportActivity('Wallet auth: posting wallet');
     const bootstrapResponse = await bot.fetchWithSession(`${baseUrl}/api/auth/wallet/`, {
