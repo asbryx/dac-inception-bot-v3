@@ -19,6 +19,9 @@ function parseArgs(argv) {
     quiet: false,
     json: false,
     fast: false,
+    accountTimeoutMs: 0,
+    reportFile: null,
+    resumeFrom: null,
   };
 
   const positional = [];
@@ -41,6 +44,9 @@ function parseArgs(argv) {
     else if (arg === '--json') parsed.json = true;
     else if (arg === '--fast') parsed.fast = true;
     else if (arg === '--concurrency') parsed.concurrency = Number(args[++i]);
+    else if (arg === '--account-timeout-ms') parsed.accountTimeoutMs = Number(args[++i]);
+    else if (arg === '--report') parsed.reportFile = args[i + 1] && !args[i + 1].startsWith('--') ? args[++i] : true;
+    else if (arg === '--resume-from') parsed.resumeFrom = args[++i];
     else if (arg === '--strategy') parsed.strategyFlag = true;
     else if (arg === '--no-human') parsed.humanMode = false;
     else if (arg === '--help' || arg === '-h') parsed.command = 'help';
@@ -52,6 +58,7 @@ function parseArgs(argv) {
   parsed.txCount = sanitizePositiveNumber(parsed.txCount, 3, { minimum: 1, maximum: 100, integer: true });
   parsed.durationHours = sanitizePositiveNumber(parsed.durationHours, 24, { minimum: 1, maximum: 168, integer: false });
   parsed.concurrency = sanitizePositiveNumber(parsed.concurrency, 1, { minimum: 1, maximum: 10, integer: true });
+  parsed.accountTimeoutMs = sanitizePositiveNumber(parsed.accountTimeoutMs, 0, { minimum: 0, maximum: 86400000, integer: true });
   return parsed;
 }
 
@@ -110,6 +117,9 @@ Options:
   --quiet               Less output
   --fast                Shorter delays
   --concurrency <n>     Parallel account workers (1-10)
+  --account-timeout-ms <ms> Per-account timeout for all-account runs
+  --report [file]       Write a JSON run report
+  --resume-from <file>  Skip accounts already successful in a report
   --json                JSON output
 `);
 }

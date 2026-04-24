@@ -1,18 +1,39 @@
 const { mapLimit } = require('../utils/concurrency');
 const { formatBotError, toBotError } = require('../utils/errors');
+const { classifyFailure } = require('./reporting');
 
-async function runAcrossAccounts(accounts, worker, { onStart = null, onComplete = null, concurrency = 1, action = 'account-run' } = {}) {
+function withTimeout(promise, timeoutMs, account) {
+  if (!timeoutMs) return promise;
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${account} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function runAcrossAccounts(accounts, worker, { onStart = null, onComplete = null, concurrency = 1, action = 'account-run', timeoutMs = 0 } = {}) {
   const wrapped = async (account, index) => {
-    if (onStart) onStart({ account, index, total: accounts.length });
+    const startedAtMs = Date.now();
+    const startedAt = new Date(startedAtMs).toISOString();
+    if (onStart) onStart({ account, index, total: accounts.length, startedAt });
     try {
-      const result = await worker(account, index);
-      const row = { account, ok: true, result };
-      if (onComplete) onComplete({ account, index, total: accounts.length, ok: true, result });
+      const result = await withTimeout(worker(account, index), timeoutMs, account);
+      const durationMs = Date.now() - startedAtMs;
+      const row = { account, ok: true, result, startedAt, durationMs };
+      if (onComplete) onComplete({ account, index, total: accounts.length, ok: true, result, startedAt, durationMs });
       return row;
     } catch (error) {
       const normalized = toBotError(error, { accountName: account, action });
-      const row = { account, ok: false, error: formatBotError(normalized) };
-      if (onComplete) onComplete({ account, index, total: accounts.length, ok: false, error: row.error });
+      const durationMs = Date.now() - startedAtMs;
+      const row = {
+        account,
+        ok: false,
+        error: formatBotError(normalized),
+        failureType: classifyFailure(normalized),
+        startedAt,
+        durationMs,
+      };
+      if (onComplete) onComplete({ account, index, total: accounts.length, ok: false, error: row.error, failureType: row.failureType, startedAt, durationMs });
       return row;
     }
   };

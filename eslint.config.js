@@ -3,6 +3,9 @@ const js = require('@eslint/js');
 module.exports = [
   js.configs.recommended,
   {
+    ignores: ['node_modules/**', 'coverage/**'],
+  },
+  {
     files: ['**/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
@@ -13,6 +16,7 @@ module.exports = [
         Buffer: 'readonly',
         URL: 'readonly',
         __dirname: 'readonly',
+        __filename: 'readonly',
         clearInterval: 'readonly',
         clearTimeout: 'readonly',
         console: 'readonly',
@@ -30,6 +34,7 @@ module.exports = [
       'no-dupe-class-members': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
       'no-unused-vars': 'off',
+      'no-undef': 'error',
     },
   },
 ];

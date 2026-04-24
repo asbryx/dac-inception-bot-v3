@@ -14,6 +14,7 @@ function defaultProxySettings() {
       healthCheckTimeoutMs: 8000,
       cooldownMs: 300000,
       maxAttemptsPerRequest: 3,
+      quarantineAfterFailures: 3,
     },
   };
 }
@@ -48,6 +49,7 @@ function normalizeFailoverSettings(raw = {}) {
     healthCheckTimeoutMs: Number.isFinite(Number(raw?.healthCheckTimeoutMs)) ? Number(raw.healthCheckTimeoutMs) : defaults.healthCheckTimeoutMs,
     cooldownMs: Number.isFinite(Number(raw?.cooldownMs)) ? Number(raw.cooldownMs) : defaults.cooldownMs,
     maxAttemptsPerRequest: Number.isFinite(Number(raw?.maxAttemptsPerRequest)) ? Math.max(1, Math.trunc(Number(raw.maxAttemptsPerRequest))) : defaults.maxAttemptsPerRequest,
+    quarantineAfterFailures: Number.isFinite(Number(raw?.quarantineAfterFailures)) ? Math.max(1, Math.trunc(Number(raw.quarantineAfterFailures))) : defaults.quarantineAfterFailures,
   };
 }
 
@@ -88,6 +90,11 @@ function isProxyCoolingDown(proxy, state, now, cooldownMs) {
   const entry = state.get(proxy.url);
   if (!entry?.lastFailedAt) return false;
   return now - entry.lastFailedAt < cooldownMs;
+}
+
+function isProxyQuarantined(proxy, state, quarantineAfterFailures) {
+  const entry = state.get(proxy.url);
+  return (entry?.failures || 0) >= quarantineAfterFailures;
 }
 
 function createProxyRotation(entries = [], options = {}) {
@@ -132,6 +139,7 @@ function createProxyRotation(entries = [], options = {}) {
       const index = (cursor + offset) % list.length;
       const proxy = list[index];
       if (exclude.has(proxy.url)) continue;
+      if (preferHealthy && isProxyQuarantined(proxy, healthState, settings.failover.quarantineAfterFailures)) continue;
       if (preferHealthy && isProxyCoolingDown(proxy, healthState, now, settings.failover.cooldownMs)) continue;
       cursor = (index + 1) % list.length;
       return index;
@@ -206,10 +214,12 @@ function createProxyRotation(entries = [], options = {}) {
         .filter((item) => item.proxyUrl === proxy.url)
         .map((item) => item.key);
       const coolingDown = isProxyCoolingDown(proxy, healthState, now, settings.failover.cooldownMs);
+      const quarantined = isProxyQuarantined(proxy, healthState, settings.failover.quarantineAfterFailures);
       let status = 'unused';
       if (assignedTo.length) status = 'assigned';
       if (coolingDown) status = 'cooldown';
-      if (assignedTo.length && state.lastOkAt && !coolingDown) status = 'healthy';
+      if (quarantined) status = 'quarantined';
+      if (assignedTo.length && state.lastOkAt && !coolingDown && !quarantined) status = 'healthy';
       return {
         url: proxy.url,
         label: proxy.label,
@@ -228,6 +238,7 @@ function createProxyRotation(entries = [], options = {}) {
       healthy: rows.filter((row) => row.status === 'healthy').length,
       assigned: rows.filter((row) => row.status === 'assigned').length,
       cooldown: rows.filter((row) => row.status === 'cooldown').length,
+      quarantined: rows.filter((row) => row.status === 'quarantined').length,
       unused: rows.filter((row) => row.status === 'unused').length,
     assignments: Array.from(assignments.values()),
     failovers: [...failoverEvents],

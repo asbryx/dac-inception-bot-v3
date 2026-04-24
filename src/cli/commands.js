@@ -203,6 +203,11 @@ async function handleRunAll(args) {
     options,
     selected: args.accounts || undefined,
     concurrency: args.concurrency || 1,
+    timeoutMs: args.accountTimeoutMs || 0,
+    resumeFrom: args.resumeFrom || null,
+    reportFile: typeof args.reportFile === 'string' ? args.reportFile : null,
+    writeReport: !!args.reportFile,
+    proxyRotation,
     onStart: ({ account, index, total }) => {
       if (liveProxyDashboard) setProgress(account, `running ${index + 1}/${total}`, 'starting');
       else if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
@@ -219,6 +224,7 @@ async function handleRunAll(args) {
     },
   });
   const parts = [renderSummaryBundle(summarizeAccounts(result.results))];
+  if (result.reportFile) parts.push(renderActionResult('Report', [`saved ${result.reportFile}`]));
   if (proxyRotation?.snapshot) parts.push(renderProxyPanel(proxyRotation.snapshot()));
   console.log(parts.filter(Boolean).join('\n'));
 }
