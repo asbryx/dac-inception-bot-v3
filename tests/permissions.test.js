@@ -16,3 +16,13 @@ test('secret file writes use 0600 permissions', () => {
   const mode = fs.statSync(file).mode & 0o777;
   assert.equal(mode, 0o600);
 });
+
+
+test('readJson throws on malformed existing json', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dac-bot-v2-'));
+  const file = path.join(dir, 'broken.json');
+  fs.writeFileSync(file, '{ bad json');
+  const { readJson } = require('../src/config/files');
+
+  assert.throws(() => readJson(file, { fallback: true }), /Invalid JSON/);
+});

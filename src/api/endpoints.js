@@ -60,11 +60,26 @@ async function fetchOnce(bot, apiPath, { method = 'GET', body } = {}) {
   }
 }
 
+function isRetryableReadStatus(status) {
+  return status === 429 || status >= 500;
+}
+
+async function fetchReadOnceWithRetryableStatus(bot, apiPath, { method, body }) {
+  const payload = await fetchOnce(bot, apiPath, { method, body });
+  if (isRetryableReadStatus(payload._status || 0)) {
+    const error = new Error(payload.error || `Retryable API status ${payload._status}`);
+    error.status = payload._status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
 async function fetchApiPayload(bot, apiPath, { method = 'GET', body } = {}) {
   const isRead = method === 'GET' && isReadOnlyApiPath(apiPath);
   try {
     if (isRead) {
-      return await retryRead(() => fetchOnce(bot, apiPath, { method, body }), { retries: 1, backoffMs: 500, fastMode: bot.fastMode });
+      return await retryRead(() => fetchReadOnceWithRetryableStatus(bot, apiPath, { method, body }), { retries: 1, backoffMs: 500, fastMode: bot.fastMode });
     }
     return await fetchOnce(bot, apiPath, { method, body });
   } catch (error) {
@@ -169,6 +184,7 @@ module.exports = {
   isReadOnlyApiPath,
   getApiTimeoutMs,
   getFallbackPayload,
+  isRetryableReadStatus,
   fetchApiPayload,
   api,
   profile,

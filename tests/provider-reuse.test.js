@@ -28,6 +28,20 @@ test('waitForTxReceipt polls provider until receipt is available', async () => {
   assert.deepEqual(receipt, { hash: '0xabc', status: 1 });
 });
 
+
+test('waitForTxReceipt rejects reverted receipts', async () => {
+  const provider = {
+    async getTransactionReceipt(hash) {
+      return { hash, status: 0 };
+    },
+  };
+
+  await assert.rejects(
+    () => waitForTxReceipt(provider, '0xdead', { attempts: 1, delayMs: 0 }),
+    /reverted/,
+  );
+});
+
 test('buildLegacyTransferRequest uses RPC network metadata and a minimum gas price floor', async () => {
   const signer = { address: '0x1111111111111111111111111111111111111111' };
   const provider = {

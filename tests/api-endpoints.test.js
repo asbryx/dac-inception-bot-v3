@@ -30,3 +30,26 @@ test('timeout fallback preserves endpoint-specific message and stale flag', asyn
   assert.equal(result._timeout, true);
   assert.match(result.error, /Timeout: GET \/profile\//);
 });
+
+
+test('read endpoints retry retryable http statuses', async () => {
+  let calls = 0;
+  const bot = {
+    apiBase: 'https://example.invalid',
+    fastMode: true,
+    apiClient: {
+      fetchWithSession: async () => {
+        calls += 1;
+        return { status: calls === 1 ? 500 : 200 };
+      },
+      fetchJsonResponse: async (response) => (response.status === 200 ? { ok: true } : { error: 'temporary' }),
+    },
+    getCachedValue: () => null,
+  };
+
+  const result = await fetchApiPayload(bot, '/profile/', { method: 'GET' });
+
+  assert.equal(calls, 2);
+  assert.equal(result.ok, true);
+  assert.equal(result._status, 200);
+});

@@ -74,7 +74,11 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
     };
 
     if (concurrency > 1) {
-      await runAcrossAccounts(perAccount, (entry, index) => processEntry(entry, index), { concurrency, action: 'faucet-loop-cycle', onStart, onComplete });
+      await runAcrossAccounts(
+        perAccount.map((entry) => entry.account),
+        (accountName, index) => processEntry(perAccount.find((entry) => entry.account === accountName), index),
+        { concurrency, action: 'faucet-loop-cycle', onStart, onComplete },
+      );
     } else {
       for (let index = 0; index < perAccount.length; index += 1) {
         if (onStart) onStart({ account: perAccount[index].account, index, total: perAccount.length });

@@ -116,7 +116,7 @@ function createLiveProxyRenderer(title, proxyRotation, progressRows = []) {
 function makeContextFactory(args, proxyRotation) {
   return (accountName) => createAccountContext(accountName, {
     fastMode: !!args.fast,
-    humanMode: !args.quiet,
+    humanMode: args.humanMode !== false && !args.quiet,
     proxyRotation,
   });
 }
@@ -593,7 +593,6 @@ async function runCommand(args) {
         await new Promise((resolve) => setTimeout(resolve, args.fast ? 5000 : 60 * 1000));
       }
     }
-    return;
   }
 
   if (command === 'help') {
@@ -602,7 +601,7 @@ async function runCommand(args) {
     return;
   }
 
-  await handleRun({ ...args, command: 'run' });
+  throw new Error(`Unknown command: ${command}`);
 }
 
 module.exports = {

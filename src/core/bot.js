@@ -225,7 +225,10 @@ function formatErrorMessage(error) {
 async function waitForTxReceipt(provider, hash, { attempts = 60, delayMs = 200 } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const receipt = await provider.getTransactionReceipt(hash);
-    if (receipt) return receipt;
+    if (receipt) {
+      if (receipt.status === 0) throw new Error(`Transaction ${hash} reverted`);
+      return receipt;
+    }
     await sleep(delayMs);
   }
   throw new Error(`Transaction ${hash} was not confirmed after ${attempts * delayMs}ms`);
@@ -748,6 +751,7 @@ class DACBot {
       if (!sig.success || !sig.signature) throw new Error(sig.error || 'No mint signature returned');
       const rankId = sig.rank_id ?? sig.rankId ?? rank.id;
       if (typeof rankId !== 'number' || rankId < 0 || rankId > 12) throw new Error(`Invalid rank id from API: ${rankId}`);
+      if (rankId !== rank.id) throw new Error(`Mint signature rank mismatch: expected ${rank.id}, got ${rankId}`);
       const normalizedSignature = String(sig.signature).replace(/^0x/i, '');
       const alreadyMinted = await this.nft.hasMinted(this.wallet.address, rankId);
       if (alreadyMinted) return { alreadyMinted: true, rankKey, rankId };

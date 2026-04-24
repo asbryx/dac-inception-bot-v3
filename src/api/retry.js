@@ -5,8 +5,8 @@ async function retryRead(fn, { retries = 1, backoffMs = 250, maxBackoffMs = 8000
       return await fn(attempt);
     } catch (error) {
       lastError = error;
-      const isClientError = error?.status >= 400 && error?.status < 500;
-      if (isClientError) throw error;
+      const isNonRetryableClientError = error?.status >= 400 && error?.status < 500 && error.status !== 429;
+      if (isNonRetryableClientError) throw error;
       if (attempt >= retries) throw error;
       if (fastMode) continue;
       const delay = Math.min(backoffMs * (2 ** attempt), maxBackoffMs);

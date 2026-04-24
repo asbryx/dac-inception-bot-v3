@@ -78,8 +78,10 @@ function getFeature(featureId) {
 }
 
 function isEnabled(featureId, state) {
-  if (!state || typeof state !== 'object') return true; // default true unless explicitly false
-  return state[featureId] !== false;
+  const feature = getFeature(featureId);
+  const defaultValue = feature ? feature.default : true;
+  if (!state || typeof state !== 'object') return defaultValue;
+  return Object.prototype.hasOwnProperty.call(state, featureId) ? state[featureId] !== false : defaultValue;
 }
 
 function getFeaturesByCategory(state) {

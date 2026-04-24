@@ -41,17 +41,26 @@ async function walletLogin(bot, { force = false, baseUrl }) {
   }
 
   if (!csrf) {
-    const bootstrapCsrf = '00000000000000000000000000000000';
-    csrf = bootstrapCsrf;
-    const bootstrapCookies = mergeCookieStrings(cookieString, `csrftoken=${bootstrapCsrf}`);
+    const csrfResponse = await bot.fetchWithSession(`${baseUrl}/`, {
+      method: 'GET',
+      sessionOverride: {
+        cookies: cookieString,
+        cookieHeader,
+        csrf: null,
+      },
+    });
+    applyResponseCookies(csrfResponse);
+    csrf = parseCookieString(cookieString).csrftoken || null;
+    if (!csrf) throw new Error('Wallet auth bootstrap failed: missing CSRF cookie');
+    const bootstrapCookies = cookieString;
     const bootstrapResponse = await bot.fetchWithSession(`${baseUrl}/api/auth/wallet/`, {
       method: 'POST',
-      headers: { 'x-csrftoken': bootstrapCsrf },
+      headers: { 'x-csrftoken': csrf },
       body: { wallet_address: bot.walletAddress },
       sessionOverride: {
         cookies: bootstrapCookies,
         cookieHeader: buildCookieHeader(bootstrapCookies),
-        csrf: bootstrapCsrf,
+        csrf,
       },
     });
     const bootstrapType = bootstrapResponse.headers.get('content-type') || '';
@@ -66,7 +75,7 @@ async function walletLogin(bot, { force = false, baseUrl }) {
     }
 
     const finalBootstrapCookies = mergeCookieStrings(bot.session?.cookies || '', cookieString);
-    const finalBootstrapCsrf = parseCookieString(finalBootstrapCookies).csrftoken || bot.session?.csrf || bootstrapCsrf;
+    const finalBootstrapCsrf = parseCookieString(finalBootstrapCookies).csrftoken || bot.session?.csrf || csrf;
     bot.setSession(finalBootstrapCookies, finalBootstrapCsrf, true);
     return bootstrapPayload;
   }

@@ -35,7 +35,7 @@ function extractSetCookieParts(headers) {
   if (typeof headers.getSetCookie === 'function') return headers.getSetCookie();
   const combined = headers.get ? headers.get('set-cookie') : null;
   if (!combined) return [];
-  return combined.split(/,(?=\s*[^;=]+=[^;]+)/g);
+  return combined.split(/,(?=\s*[^;,\s]+=)/g);
 }
 
 function parseSetCookieHeader(header) {
