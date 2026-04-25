@@ -95,7 +95,7 @@ function renderAccountRow({ account, index, total, ok, error, step, message }) {
 async function buildAutoAllOptionsInteractive(promptFn) {
   const preset = await chooseAutoAllMode(promptFn);
   if (preset === 'default') {
-    return { ...buildAutoAllOptionsFromState(buildDefaultState()), profile: 'balanced' };
+    return { ...buildAutoAllOptionsFromState(buildDefaultState()), profile: 'safe' };
   }
 
   // Load persistent feature state
@@ -106,7 +106,13 @@ async function buildAutoAllOptionsInteractive(promptFn) {
   const toggleItems = [];
   for (const group of groups) {
     for (const item of group.items) {
-      toggleItems.push({ label: item.label, value: item.id, checked: item.enabled, description: item.description });
+      toggleItems.push({
+        label: item.label,
+        value: item.id,
+        checked: item.enabled,
+        description: item.description,
+        autoEnable: item.id === 'strategy_run' ? ['tx_burn', 'tx_stake'] : [],
+      });
     }
   }
 
@@ -120,9 +126,9 @@ async function buildAutoAllOptionsInteractive(promptFn) {
     }
   }
   if (featureState.strategy_run) {
-    // Smart strategy decides burn/stake amounts itself; keep manual toggles out of this run.
-    featureState.tx_burn = false;
-    featureState.tx_stake = false;
+    // Smart strategy owns burn/stake sizing with the safe profile; show them enabled without asking amounts.
+    featureState.tx_burn = true;
+    featureState.tx_stake = true;
   }
   saveFeatureState(featureState);
 
@@ -138,19 +144,16 @@ async function buildAutoAllOptionsInteractive(promptFn) {
   }
 
   let stakeAmount = null;
-  if (options.stake) {
+  if (options.stake && !options.strategy) {
     stakeAmount = (await promptFn('Stake amount [0.01]: ')) || '0.01';
   }
 
   let burnAmount = null;
-  if (options.burn) {
+  if (options.burn && !options.strategy) {
     burnAmount = (await promptFn('Burn amount [0.01]: ')) || '0.01';
   }
 
-  let profile = 'balanced';
-  if (options.strategy) {
-    profile = (await chooseProfile(promptFn)) || 'balanced';
-  }
+  const profile = 'safe';
 
   return {
     ...options,

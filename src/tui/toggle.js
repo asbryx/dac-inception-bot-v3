@@ -96,6 +96,12 @@ function promptMultiToggleTTY(title, items) {
     } else {
       // Regular item: just toggle
       item.checked = !item.checked;
+      if (item.checked && Array.isArray(item.autoEnable)) {
+        for (const value of item.autoEnable) {
+          const linked = state.find((candidate) => candidate.value === value);
+          if (linked) linked.checked = true;
+        }
+      }
       // Find parent group and sync header
       for (const group of groups) {
         if (group.itemIndexes.includes(idx)) {
@@ -120,8 +126,10 @@ function promptMultiToggleTTY(title, items) {
       if (item.checked === 'indeterminate') mark = color('[-]', C.warn);
       else if (item.checked) mark = color('[x]', C.success);
       else mark = color('[ ]', C.muted);
-      const label = active ? color(item.label, C.value) : color(item.label, C.label);
-      return ` ${pointer} ${mark} ${label}`;
+      const labelText = String(item.label || '');
+      const label = active ? color(labelText.padEnd(18), C.value) : color(labelText.padEnd(18), C.label);
+      const description = item.description ? color(` - ${item.description}`, C.muted) : '';
+      return ` ${pointer} ${mark} ${label}${description}`;
     });
     const header = [
       color(String(title).toUpperCase(), `${ANSI.bold}${C.title}`),

@@ -34,7 +34,7 @@ const FEATURE_REGISTRY = [
   { id: 'tx_stake',      label: 'Stake DACC',         category: 'chain',  default: false, description: 'Stake DACC in exchange contract' },
 
   // ── Strategy ──
-  { id: 'strategy_run',  label: 'Smart Strategy',     category: 'strategy', default: false, description: 'Auto-burn/stake/TX based on profile' },
+  { id: 'strategy_run',  label: 'Smart Strategy',     category: 'strategy', default: false, description: 'Safe auto plan: keeps 0.50 DACC, then handles TX, stake, burn, crates, mint scan' },
 ];
 
 const CATEGORIES = {
