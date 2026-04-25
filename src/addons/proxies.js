@@ -129,6 +129,7 @@ function createProxyRotation(entries = [], options = {}) {
     const current = healthState.get(proxy.url) || {};
     healthState.set(proxy.url, {
       ...current,
+      failures: 0,
       lastOkAt: Date.now(),
       lastFailedAt: null,
       lastError: null,

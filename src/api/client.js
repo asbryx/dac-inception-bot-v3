@@ -4,6 +4,7 @@ const {
   parseSetCookieHeader,
   mergeCookieStrings,
   parseCookieString,
+  buildCookieHeader,
 } = require('../auth/session');
 const { getProxyDispatcher, probeProxy } = require('../addons/proxies');
 
@@ -23,6 +24,10 @@ function isAuthFailure(payload) {
     || text.includes('authentication credentials were not provided');
 }
 
+function cookieDomainMatchesHost(domain, host) {
+  return domain === host || host.endsWith(`.${domain}`);
+}
+
 function applySetCookieHeaders(bot, response, csrf) {
   const setCookieHeaders = extractSetCookieParts(response.headers);
   if (!setCookieHeaders.length) return;
@@ -33,7 +38,7 @@ function applySetCookieHeaders(bot, response, csrf) {
     if (!parsed) continue;
     const responseHost = response.url ? new URL(response.url).hostname : new URL(bot.baseUrl).hostname;
     const domain = normalizeCookieDomain(parsed.attrs.domain || responseHost);
-    if (domain !== responseHost) continue;
+    if (!cookieDomainMatchesHost(domain, responseHost)) continue;
     newCookies.push(`${parsed.name}=${parsed.value}`);
   }
 
@@ -82,7 +87,7 @@ async function fetchWithSession(bot, url, { method = 'GET', headers = {}, body, 
   if (typeof bot.rotateUserAgent === 'function' && bot.humanMode && bot.humanFeatures?.rotateUserAgent !== false) {
     bot.rotateUserAgent();
   }
-  const cookieHeader = sessionOverride?.cookieHeader || bot.session?.cookieHeader || '';
+  const cookieHeader = sessionOverride?.cookieHeader || (sessionOverride?.cookies ? buildCookieHeader(sessionOverride.cookies) : '') || bot.session?.cookieHeader || '';
   const csrf = sessionOverride?.csrf || bot.session?.csrf || '';
   const requestHeaders = {
     ...bot.buildDefaultHeaders(bot.session.userAgent),
@@ -103,13 +108,17 @@ async function fetchWithSession(bot, url, { method = 'GET', headers = {}, body, 
     const activeProxy = bot.proxy;
     try {
       const dispatcher = getProxyDispatcher(activeProxy);
-      const response = await fetch(url, {
+      const response = await fetch(requestUrl, {
         method,
         headers: requestHeaders,
         body: body === undefined ? undefined : JSON.stringify(body),
         signal,
+        redirect: 'manual',
         dispatcher: dispatcher || undefined,
       });
+      if (response.status >= 300 && response.status < 400) {
+        throw new Error(`Refusing redirect while sending session credentials (${response.status})`);
+      }
       const proxyHttpFailure = shouldFailoverResponse(response, method) && activeProxy;
       if (proxyHttpFailure) {
         lastError = new Error(`Proxy HTTP ${response.status}`);

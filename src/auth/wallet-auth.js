@@ -24,8 +24,9 @@ async function walletLogin(bot, { force = false, baseUrl }) {
     for (const header of setCookieHeaders) {
       const parsed = parseSetCookieHeader(header);
       if (!parsed) continue;
-      const domain = normalizeCookieDomain(parsed.attrs.domain || new URL(baseUrl).hostname);
-      if (domain !== 'inception.dachain.io') continue;
+      const host = new URL(baseUrl).hostname;
+      const domain = normalizeCookieDomain(parsed.attrs.domain || host);
+      if (domain !== host && !host.endsWith(`.${domain}`)) continue;
       newCookies.push(`${parsed.name}=${parsed.value}`);
     }
     if (!newCookies.length) return;

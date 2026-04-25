@@ -25,7 +25,7 @@ function normalizeStatus({ accountName, wallet, profileData = null, networkData 
     catalogData?._error || null,
   ].filter(Boolean);
   const inceptionQeVal = finiteNumber(profile.qe_balance);
-  const waitlistQeVal = Number(profile.waitlist_qe ?? 0);
+  const waitlistQeVal = finiteNumber(profile.waitlist_qe, 0);
   const totalQe = inceptionQeVal != null
     ? inceptionQeVal + waitlistQeVal
     : finiteNumber(profile.qe);

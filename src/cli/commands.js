@@ -15,6 +15,7 @@ const { runMintAllRanksAll } = require('../orchestration/mint-all');
 const { runReceiveAll } = require('../orchestration/receive-all');
 const { runTxMeshAll } = require('../orchestration/mesh-all');
 const { runFaucetLoop, runFaucetLoopAll } = require('../orchestration/faucet-loop');
+const { mapLimit } = require('../utils/concurrency');
 const { runInteractiveLauncher } = require('../tui/launcher');
 const { summarizeAccounts } = require('../domain/summary');
 const {
@@ -324,7 +325,7 @@ async function runCommand(args) {
     const preflight = validateSelectedAccounts(selected);
     const validAccounts = preflight.rows.filter((row) => row.ok).map((row) => row.accountName);
     const rows = preflight.invalid.map((row) => ({ account: row.accountName, ok: false, error: row.issues.join('; ') }));
-    rows.push(...await Promise.all(validAccounts.map(async (account) => {
+    rows.push(...await mapLimit(validAccounts, args.concurrency || 1, async (account) => {
       try {
         const context = await contextFactory(account);
         return {
@@ -336,8 +337,9 @@ async function runCommand(args) {
       } catch (error) {
         return { account, ok: false, error: error.message };
       }
-    })));
-    console.log([renderSummary(summarizeAccounts(rows)), renderFailuresPanel(rows.filter((row) => !row.ok))].filter(Boolean).join('\n'));
+    }));
+    const payload = { task: 'wallet-login-all', accounts: selected, preflight, results: rows, updatedAt: new Date().toISOString() };
+    printStructured(args, payload, () => [renderSummary(summarizeAccounts(rows)), renderFailuresPanel(rows.filter((row) => !row.ok))].filter(Boolean).join('\n'));
     return;
   }
 

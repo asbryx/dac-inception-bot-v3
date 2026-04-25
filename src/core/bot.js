@@ -222,7 +222,7 @@ function formatErrorMessage(error) {
   return joined.length > 220 ? `${joined.slice(0, 217)}...` : joined;
 }
 
-async function waitForTxReceipt(provider, hash, { attempts = 60, delayMs = 200 } = {}) {
+async function waitForTxReceipt(provider, hash, { attempts = 60, delayMs = 200, throwOnTimeout = true } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const receipt = await provider.getTransactionReceipt(hash);
     if (receipt) {
@@ -231,6 +231,7 @@ async function waitForTxReceipt(provider, hash, { attempts = 60, delayMs = 200 }
     }
     await sleep(delayMs);
   }
+  if (!throwOnTimeout) return null;
   throw new Error(`Transaction ${hash} was not confirmed after ${attempts * delayMs}ms`);
 }
 
@@ -586,12 +587,17 @@ class DACBot {
       this.log(`  Burn: submitting ${amountEth} DACC...`);
       const tx = await this.exchange.burnForQE({ value: ethers.parseEther(String(amountEth)) });
       this.log(`  Burn submitted: ${tx.hash}`);
-      await waitForTxReceipt(this.provider, tx.hash);
+      const receipt = await waitForTxReceipt(this.provider, tx.hash, { throwOnTimeout: false });
+      if (!receipt) {
+        this.log(`  Burn pending: ${tx.hash}`);
+        return { hash: tx.hash, amount: amountEth, status: 'pending', pending: true, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+      }
       const confirm = await this.confirmBurn(tx.hash);
+      if (confirm?.success === false) throw new Error(confirm.error || 'Burn backend confirmation failed');
       this.invalidateRuntimeCache(['profile', 'status']);
       await this.recordTaskCompletion('first_swap', 'Record burn for QE');
       this.log(`  Burn confirmed: ${tx.hash}`);
-      return { hash: tx.hash, amount: amountEth, confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+      return { hash: tx.hash, amount: amountEth, status: 'confirmed', confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
     }, { detail: `${amountEth} DACC → QE`, txMeta: true });
   }
 
@@ -601,12 +607,17 @@ class DACBot {
       this.log(`  Stake: submitting ${amountEth} DACC...`);
       const tx = await this.exchange.stake({ value: ethers.parseEther(String(amountEth)) });
       this.log(`  Stake submitted: ${tx.hash}`);
-      await waitForTxReceipt(this.provider, tx.hash);
+      const receipt = await waitForTxReceipt(this.provider, tx.hash, { throwOnTimeout: false });
+      if (!receipt) {
+        this.log(`  Stake pending: ${tx.hash}`);
+        return { hash: tx.hash, amount: amountEth, status: 'pending', pending: true, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+      }
       const confirm = await this.confirmStake(tx.hash);
+      if (confirm?.success === false) throw new Error(confirm.error || 'Stake backend confirmation failed');
       this.invalidateRuntimeCache(['profile', 'status']);
       await this.recordTaskCompletion('liquidity', 'Record DACC stake');
       this.log(`  Stake confirmed: ${tx.hash}`);
-      return { hash: tx.hash, amount: amountEth, confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+      return { hash: tx.hash, amount: amountEth, status: 'confirmed', confirm, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
     }, { detail: `${amountEth} DACC staked`, txMeta: true });
   }
 
@@ -877,13 +888,13 @@ class DACBot {
     if (this.wallet && spendable >= txBudget && status.txCount < 10) actions.push({ type: 'tx-grind', count: config.txCount, amount: config.txAmount, reason: 'low transaction count; grind minimal surplus for tx badges' });
     const minStake = ethers.parseEther(String(config.minStakeAmount));
     const minBurn = ethers.parseEther(String(config.minBurnAmount));
-    const stakeAmount = (spendable * BigInt(Math.floor(config.stakeRatio * 10000))) / 10000n;
-    const burnAmount = (spendable * BigInt(Math.floor(config.burnRatio * 10000))) / 10000n;
-    const maxSingleAction = ethers.parseEther('0.25');
-    const cappedStake = stakeAmount > maxSingleAction ? maxSingleAction : stakeAmount;
-    const cappedBurn = burnAmount > maxSingleAction ? maxSingleAction : burnAmount;
-    if (this.wallet && cappedStake >= minStake) actions.push({ type: 'stake', amount: ethers.formatEther(cappedStake), reason: 'stake a capped share of surplus DACC for long-tail progression' });
-    if (this.wallet && cappedBurn >= minBurn) actions.push({ type: 'burn', amount: ethers.formatEther(cappedBurn), reason: 'burn a capped share of surplus DACC to convert into QE' });
+    const stakeWeight = Math.max(0, Math.floor(Number(config.stakeRatio || 0) * 10000));
+    const burnWeight = Math.max(0, Math.floor(Number(config.burnRatio || 0) * 10000));
+    const totalWeight = BigInt(stakeWeight + burnWeight);
+    const stakeAmount = totalWeight > 0n ? (spendable * BigInt(stakeWeight)) / totalWeight : 0n;
+    const burnAmount = totalWeight > 0n ? spendable - stakeAmount : 0n;
+    if (this.wallet && stakeAmount >= minStake) actions.push({ type: 'stake', amount: ethers.formatEther(stakeAmount), reason: 'stake surplus DACC while preserving reserve' });
+    if (this.wallet && burnAmount >= minBurn) actions.push({ type: 'burn', amount: ethers.formatEther(burnAmount), reason: 'burn surplus DACC while preserving reserve' });
     if (status.qe >= (crateHistory.cost_per_open || 150) && (crateHistory.opens_today || 0) < (crateHistory.daily_open_limit || 5)) actions.push({ type: 'crates', reason: 'QE is high enough and daily crate capacity remains' });
     actions.push({ type: 'mint-scan', reason: 'scan for any newly eligible rank NFTs' });
     return { actions, notes, config };

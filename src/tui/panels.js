@@ -221,6 +221,7 @@ function renderTxPanel(title, payload = {}, { amount = null, rankKey = null } = 
   const lines = [''];
   if (amount != null) lines.push(metric('Amount', amount, { tone: C.success }));
   if (rankKey)        lines.push(metric('Rank', rankKey, { tone: C.warn }));
+  if (payload.status) lines.push(metric('Status', payload.status, { tone: payload.status === 'pending' ? C.warn : C.success }));
   lines.push(
     metric('Tx', shortHash(payload.hash || payload.txHash || ''), { tone: C.primary }),
     metric('Explorer', shortUrl(payload.explorer || ''), { tone: C.muted }),
