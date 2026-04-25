@@ -432,9 +432,7 @@ class AccountProgressMap {
         pct = 100;
       } else if (state.error) {
         const failedLabel = state.failedStep || state.label || '?';
-        let errDisplay = state.error;
-        if (errDisplay.length > 28) errDisplay = errDisplay.slice(0, 25) + '...';
-        stepText = `${color(`Failed at: ${failedLabel}`, C.error)} ${color(`— ${errDisplay}`, C.errorText)}`;
+        stepText = color(`Failed at: ${failedLabel}`, C.error);
         pct = Math.round(((state.index || 0) / (state.total || 1)) * 100);
       } else if (state.label) {
         const idx = state.index ?? '?';
@@ -462,12 +460,12 @@ class AccountProgressMap {
       const barMini = this._miniBar(pct, 10);
       const pctStr = color(String(pct).padStart(3), pct >= 80 ? C.success : pct >= 40 ? C.warn : C.primary);
 
-      const rowHint = this._rowHint(tracker, state);
+      const rowHint = this._rowHint(tracker, state, 18);
       const rowSuffix = rowHint ? `  ${rowHint}` : '';
 
-      // Compose row with dynamic truncation for step text, including right-side details.
+      // Compose row with dynamic truncation for step text, including short right-side hints.
       const fixedPartsWidth = stripAnsi(`  ${sym} ${name}  ${barMini}  ${pctStr}%  ${proxyBadge}${rowSuffix}`).length;
-      const maxStepWidth = Math.max(12, inner - fixedPartsWidth - 4);
+      const maxStepWidth = Math.max(10, inner - fixedPartsWidth - 4);
       let cleanStep = stripAnsi(stepText);
       if (cleanStep.length > maxStepWidth) {
         // Truncate the colored stepText intelligently
@@ -563,18 +561,23 @@ class AccountProgressMap {
     return lines.slice(0, Math.max(5, Math.floor(inner / 12)));
   }
 
-  _rowHint(tracker, state) {
+  _rowHint(tracker, state, max = 18) {
     const activeStep = this._findStepForState(tracker, state);
     const lastTxStep = [...tracker.steps].reverse().find((step) => step.txHash || step.explorerUrl);
     const lastErrorStep = [...tracker.steps].reverse().find((step) => step.error);
     const err = activeStep?.error || lastErrorStep?.error || state.error;
-    if (err) return color(`err ${this._shortError(err, 28)}`, C.errorText);
+    if (err) return color(`err ${this._shortError(err, max)}`, C.errorText);
     const txStep = activeStep?.txHash || activeStep?.explorerUrl ? activeStep : lastTxStep;
     if (txStep?.txHash) {
       const status = txStep.detail ? ` ${txStep.detail}` : '';
-      return color(`tx ${shortHash(txStep.txHash)}${status}`, C.muted);
+      return color(this._truncatePlain(`tx ${shortHash(txStep.txHash)}${status}`, max + 4), C.muted);
     }
     return null;
+  }
+
+  _truncatePlain(text, max) {
+    const clean = String(text || '');
+    return clean.length > max ? `${clean.slice(0, Math.max(0, max - 3))}...` : clean;
   }
 
   _shortError(error, max = 48) {
