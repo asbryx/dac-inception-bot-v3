@@ -496,40 +496,48 @@ class AccountProgressMap {
       lines.push(`  ${sym} ${nameCol}  ${stepText}  ${barMini}  ${pctStr}%  ${proxyBadge}${rowSuffix}`);
     }
 
-    const focus = this._pickFocusAccount(entries);
-    if (focus) {
-      lines.push('', ...this._renderDetailPanel(focus.name, focus.tracker, this.states.get(focus.name) || {}, inner));
+    const active = this._pickActiveAccount(entries);
+    const failure = this._pickLatestFailure(entries);
+    if (active) {
+      lines.push('', ...this._renderDetailPanel('Active', active.name, active.tracker, this.states.get(active.name) || {}, inner));
+    }
+    if (failure && (!active || failure.name !== active.name)) {
+      lines.push('', ...this._renderDetailPanel('Latest Failure', failure.name, failure.tracker, this.states.get(failure.name) || {}, inner));
     }
 
     return box(`${S.diamond} ${this.title}`, lines, w);
   }
 
-  _pickFocusAccount(entries) {
+  _pickActiveAccount(entries) {
     const named = entries.filter(([name]) => name !== null);
-    const explicit = named.find(([name]) => name === this.focusAccount);
+    const explicit = named.find(([name]) => name === this.focusAccount && !this.states.get(name)?.error);
     if (explicit) return { name: explicit[0], tracker: explicit[1] };
 
-    const failed = [...named].reverse().find(([name]) => this.states.get(name)?.error);
-    if (failed) return { name: failed[0], tracker: failed[1] };
-
-    const current = named.find(([name]) => name === this.currentAccount);
+    const current = named.find(([name]) => name === this.currentAccount && !this.states.get(name)?.error);
     if (current) return { name: current[0], tracker: current[1] };
 
-    const running = named.find(([name, tracker]) => this.states.get(name)?.label || tracker.summary().running > 0);
+    const running = named.find(([name, tracker]) => !this.states.get(name)?.error && (this.states.get(name)?.label || tracker.summary().running > 0));
     if (running) return { name: running[0], tracker: running[1] };
 
-    const withDetail = [...named].reverse().find(([, tracker]) => tracker.steps.some((step) => step.txHash || step.error || step.detail));
+    const withDetail = [...named].reverse().find(([name, tracker]) => !this.states.get(name)?.error && tracker.steps.some((step) => step.txHash || step.detail));
     return withDetail ? { name: withDetail[0], tracker: withDetail[1] } : null;
   }
 
-  _renderDetailPanel(name, tracker, state, inner) {
+  _pickLatestFailure(entries) {
+    const failed = [...entries]
+      .filter(([name]) => name !== null && this.states.get(name)?.error)
+      .reverse()[0];
+    return failed ? { name: failed[0], tracker: failed[1] } : null;
+  }
+
+  _renderDetailPanel(title, name, tracker, state, inner) {
     const activeStep = this._findStepForState(tracker, state);
     const lastTxStep = [...tracker.steps].reverse().find((step) => step.txHash || step.explorerUrl);
     const lastErrorStep = [...tracker.steps].reverse().find((step) => step.error);
     const proxyInfo = this.proxies.get(name);
     const lines = [];
 
-    lines.push(`  ${color('Details:', C.label)} ${color(name, C.value)}`);
+    lines.push(`  ${color(`${title}:`, C.label)} ${color(name, C.value)}`);
     const statusParts = [];
     if (state.error) statusParts.push(color(`failed at ${state.failedStep || state.label || 'unknown step'}`, C.error));
     else if (state.done) statusParts.push(color('done', C.success));
