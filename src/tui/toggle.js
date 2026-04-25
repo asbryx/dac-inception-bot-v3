@@ -110,7 +110,7 @@ function promptMultiToggleTTY(title, items) {
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
-  const width = Math.min(60, terminalWidth() - 4);
+  const width = terminalWidth();
 
   function render() {
     const lines = state.map((item, idx) => {
@@ -223,7 +223,7 @@ function promptSingleSelectTTY(title, items) {
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
-  const width = Math.min(60, terminalWidth() - 4);
+  const width = terminalWidth();
 
   function render() {
     const lines = items.map((item, idx) => {
