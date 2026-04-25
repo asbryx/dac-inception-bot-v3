@@ -208,6 +208,7 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
   // Throttle visual renders so fast mode doesn't spend all its time clearing the terminal
   let renderPending = false;
   let lastRender = 0;
+  let renderTimer = null;
   const RENDER_INTERVAL_MS = args.fast ? 300 : 150;
   function throttledRender() {
     if (!useVisual) return;
@@ -215,8 +216,9 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     if (now - lastRender < RENDER_INTERVAL_MS) {
       if (!renderPending) {
         renderPending = true;
-        setTimeout(() => {
+        renderTimer = setTimeout(() => {
           renderPending = false;
+          renderTimer = null;
           lastRender = Date.now();
           console.clear();
           process.stdout.write(`${progressMap.render()}\n`);
@@ -313,6 +315,7 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     },
   });
 
+  if (renderTimer) clearTimeout(renderTimer);
   if (useVisual) console.clear();
   console.log(renderSummaryBundle(summarizeAccounts(result.results)));
   return result;

@@ -20,12 +20,13 @@ function redactSecrets(value) {
       .replace(/(csrftoken=)[^;\s]+/gi, '$1***redacted***')
       .replace(/(sessionid=)[^;\s]+/gi, '$1***redacted***')
       .replace(/(csrf"?\s*:\s*"?)[^",\s]+/gi, '$1***redacted***')
-      .replace(/(cookies"?\s*:\s*"?)[^"]+/gi, '$1***redacted***');
+      .replace(/(cookies"?\s*:\s*"?)[^"]+/gi, '$1***redacted***')
+      .replace(/(https?:\/\/)([^:@/\s]+):([^@/\s]+)@/gi, '$1***redacted***:***redacted***@');
   }
   if (Array.isArray(value)) return value.map(redactSecrets);
   if (typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => {
-      if (['privateKey', 'cookies', 'csrf', 'mnemonic', 'proxy'].includes(key)) return [key, '***redacted***'];
+      if (/(privateKey|cookies|csrf|mnemonic|password|proxy|proxyUrl|url|token|secret)/i.test(key)) return [key, '***redacted***'];
       return [key, redactSecrets(item)];
     }));
   }

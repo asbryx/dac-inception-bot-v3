@@ -1,5 +1,6 @@
 const { DACBot } = require('../core/bot');
 const statusDomain = require('./status');
+const { safeProxyUrl } = require('../addons/proxies');
 
 function createBot(accountName, overrides = {}) {
   return new DACBot({
@@ -12,19 +13,26 @@ function createBot(accountName, overrides = {}) {
     privateKey: overrides.privateKey ?? null,
     proxy: overrides.proxy ?? null,
     proxyRotation: overrides.proxyRotation ?? null,
+    accountConfig: overrides.accountConfig ?? null,
   });
 }
 
 function describeProxy(proxy) {
-  return proxy ? { url: proxy.url, label: proxy.label } : null;
+  return proxy ? { url: safeProxyUrl(proxy.url), label: proxy.label } : null;
 }
 
 function createStatusService(bot) {
   return {
     async fetchNormalizedStatus({ force = false } = {}) {
-      const profileData = await bot.profile({ force });
-      const networkData = await bot.network({ force });
-      const catalogData = await bot.badgeCatalog({ force });
+      const settle = async (label, fn) => {
+        try { return await fn(); }
+        catch (error) { return { _error: `${label}: ${error.message}`, _stale: true }; }
+      };
+      const [profileData, networkData, catalogData] = await Promise.all([
+        settle('profile', () => bot.profile({ force })),
+        settle('network', () => bot.network({ force })),
+        settle('badge catalog', () => bot.badgeCatalog({ force })),
+      ]);
       return statusDomain.normalizeStatus({
         accountName: bot.accountName,
         wallet: bot.walletAddress,

@@ -60,7 +60,7 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
   while (Date.now() < until) {
     cycle += 1;
     const processEntry = async (entry, index) => {
-      if (Date.now() >= until) return;
+      if (Date.now() >= until) return { ok: true, skipped: true, error: null };
       const timestamp = new Date().toISOString();
       if (typeof onProgress === 'function') onProgress({ account: entry.account, cycle, status: 'running', detail: `cycle ${cycle} attempt ${index + 1}/${perAccount.length}` });
       try {

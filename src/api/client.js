@@ -31,8 +31,9 @@ function applySetCookieHeaders(bot, response, csrf) {
   for (const header of setCookieHeaders) {
     const parsed = parseSetCookieHeader(header);
     if (!parsed) continue;
-    const domain = normalizeCookieDomain(parsed.attrs.domain || new URL(bot.baseUrl).hostname);
-    if (domain !== 'inception.dachain.io') continue;
+    const responseHost = response.url ? new URL(response.url).hostname : new URL(bot.baseUrl).hostname;
+    const domain = normalizeCookieDomain(parsed.attrs.domain || responseHost);
+    if (domain !== responseHost) continue;
     newCookies.push(`${parsed.name}=${parsed.value}`);
   }
 
@@ -44,8 +45,9 @@ function applySetCookieHeaders(bot, response, csrf) {
 
 function shouldFailoverResponse(response, method = 'GET') {
   if (!response) return false;
+  if (response.status === 407) return true;
   if (method !== 'GET' && method !== 'HEAD') return false;
-  return [407, 502, 503, 504].includes(response.status);
+  return [502, 503, 504].includes(response.status);
 }
 
 async function failoverProxy(bot, failedProxy, error) {
@@ -73,6 +75,10 @@ async function failoverProxy(bot, failedProxy, error) {
 }
 
 async function fetchWithSession(bot, url, { method = 'GET', headers = {}, body, sessionOverride, signal } = {}) {
+  const requestUrl = new URL(url, bot.baseUrl);
+  if (requestUrl.origin !== new URL(bot.baseUrl).origin) {
+    throw new Error(`Refusing to send session credentials to ${requestUrl.origin}`);
+  }
   if (typeof bot.rotateUserAgent === 'function' && bot.humanMode && bot.humanFeatures?.rotateUserAgent !== false) {
     bot.rotateUserAgent();
   }

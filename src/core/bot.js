@@ -265,7 +265,7 @@ function collectRunStepPlan(options = {}) {
 }
 
 class DACBot {
-  constructor({ cookies, csrf, privateKey, account, verbose = true, humanMode = true, fastMode = false, proxy = null, proxyRotation = null, tracker = null } = {}) {
+  constructor({ cookies, csrf, privateKey, account, accountConfig = null, verbose = true, humanMode = true, fastMode = false, proxy = null, proxyRotation = null, tracker = null } = {}) {
     this.verbose = verbose;
     this.humanFeatures = fastMode ? fastHumanFeaturesConfig() : loadHumanFeatures();
     this.fastMode = fastMode;
@@ -288,7 +288,7 @@ class DACBot {
       ? appConfig.accounts[this.accountName]
       : {};
     const accounts = appConfig.accounts || {};
-    this.accountConfig = this.accountName && accounts[this.accountName] ? accounts[this.accountName] : {};
+    this.accountConfig = accountConfig || (this.accountName && accounts[this.accountName] ? accounts[this.accountName] : {});
     this.proxyRotation = proxyRotation || null;
     if (this.accountConfig && typeof this.accountConfig === 'object') {
       const cookieText = String(this.accountConfig.cookies || '');
@@ -871,8 +871,8 @@ class DACBot {
     actions.push({ type: 'explore', reason: 'exploration yields free QE via page visits' });
     actions.push({ type: 'tasks', reason: 'social tasks yield free QE' });
     actions.push({ type: 'badges', reason: 'claim any newly unlocked badges' });
-    if (!status.faucetAvailable && status.faucetCooldownSeconds <= 300) actions.push({ type: 'faucet', reason: 'faucet may be available or close to cooldown' });
-    else if (status.faucetAvailable) actions.push({ type: 'faucet', reason: 'faucet is available' });
+    if (status.faucetAvailable) actions.push({ type: 'faucet', reason: 'faucet is available' });
+    else if (Number.isFinite(Number(status.faucetCooldownSeconds)) && Number(status.faucetCooldownSeconds) <= 300) actions.push({ type: 'faucet', reason: 'faucet may be available or close to cooldown' });
     const txBudget = ethers.parseEther(String(config.txAmount)) * BigInt(config.txCount);
     if (this.wallet && spendable >= txBudget && status.txCount < 10) actions.push({ type: 'tx-grind', count: config.txCount, amount: config.txAmount, reason: 'low transaction count; grind minimal surplus for tx badges' });
     const minStake = ethers.parseEther(String(config.minStakeAmount));
@@ -987,6 +987,12 @@ class DACBot {
 
     await this.ensureSession(false);
     let strategyPlan = null;
+    const errors = [];
+    const recordStepError = (step, error) => {
+      const message = `${step}: ${formatErrorMessage(error)}`;
+      errors.push(message);
+      this.log(`  ${message}`);
+    };
 
     const before = await this._track('Fetch status', async () => {
       const s = await this.status();
@@ -1030,7 +1036,7 @@ class DACBot {
           }
         });
       } catch (error) {
-        this.log(`  Strategy: ${formatErrorMessage(error)}`);
+        recordStepError('Strategy', error);
       }
       // Strategy already ran sync, explore, tasks, badges, faucet, tx, stake, burn, crates, mint
       // Only run steps NOT covered by strategy (receive, mesh) and any explicit overrides
@@ -1072,25 +1078,25 @@ class DACBot {
       if (txGrind) {
         advanceStep('txGrind', `Send TX x${txCount}`);
         this.log('\n  TX Grind...');
-        try { await this.grindTransactions({ count: txCount, amount: txAmount }); } catch (error) { this.log(`  TX Grind: ${formatErrorMessage(error)}`); }
+        try { await this.grindTransactions({ count: txCount, amount: txAmount }); } catch (error) { recordStepError('TX Grind', error); }
       }
 
       if (burnAmount) {
         advanceStep('burn', `Burn ${burnAmount} DACC`);
         this.log('\n  Burn for QE...');
-        try { const result = await this.burnForQE(burnAmount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { this.log(`  Burn: ${formatErrorMessage(error)}`); }
+        try { const result = await this.burnForQE(burnAmount); this.log(`  Burn tx: ${result.hash}`); } catch (error) { recordStepError('Burn', error); }
       }
 
       if (stakeAmount) {
         advanceStep('stake', `Stake ${stakeAmount} DACC`);
         this.log('\n  Stake DACC...');
-        try { const result = await this.stakeDacc(stakeAmount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake: ${formatErrorMessage(error)}`); }
+        try { const result = await this.stakeDacc(stakeAmount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { recordStepError('Stake', error); }
       }
 
       if (crates) {
         advanceStep('crates', 'Open crates');
         this.log('\n  Crates...');
-        try { await this.runCrates(); } catch (error) { this.log(`  Crates: ${formatErrorMessage(error)}`); }
+        try { await this.runCrates(); } catch (error) { recordStepError('Crates', error); }
       }
 
       if (mintScan) {
@@ -1109,13 +1115,13 @@ class DACBot {
     if (receive) {
       advanceStep('receive', `Receive quest x${receiveCount}`);
       this.log('\n  Receive quest...');
-      try { await this.receiveTransactions({ count: receiveCount, amount: receiveAmount }); } catch (error) { this.log(`  Receive: ${formatErrorMessage(error)}`); }
+      try { await this.receiveTransactions({ count: receiveCount, amount: receiveAmount }); } catch (error) { recordStepError('Receive', error); }
     }
 
     if (mesh) {
       advanceStep('mesh', `Mesh loop x${meshCount}`);
       this.log('\n  Send + receive mesh...');
-      try { await this.txMesh({ count: meshCount, amount: meshAmount }); } catch (error) { this.log(`  Mesh: ${formatErrorMessage(error)}`); }
+      try { await this.txMesh({ count: meshCount, amount: meshAmount }); } catch (error) { recordStepError('Mesh', error); }
     }
 
     const after = await this._track('Final status', async () => {
@@ -1124,7 +1130,7 @@ class DACBot {
       return s;
     });
 
-    return { ok: true, strategyPlan, after };
+    return { ok: errors.length === 0, strategyPlan, after, errors, error: errors[0] || null };
   }
 }
 

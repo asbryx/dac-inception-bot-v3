@@ -172,7 +172,7 @@ function createEndpoints(bot) {
     claimBadge: (badgeKey) => api(bot, 'POST', '/claim-badge/', { badge_key: badgeKey }),
     claimFaucet: () => api(bot, 'POST', '/faucet/', {}),
     faucetHistory: () => api(bot, 'GET', '/faucet-history/'),
-    faucetStatus: (dispenseId) => api(bot, 'GET', `/faucet/status/${dispenseId}/`),
+    faucetStatus: (dispenseId) => api(bot, 'GET', `/faucet/status/${encodeURIComponent(String(dispenseId))}/`),
     openCrate: () => api(bot, 'POST', '/crate/open/', {}),
     visitPage: (pathValue) => api(bot, 'POST', '/visit/', { path: pathValue }),
     visitExplorer: () => api(bot, 'POST', '/visit/explorer/', {}),

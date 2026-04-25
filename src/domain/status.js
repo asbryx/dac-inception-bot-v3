@@ -9,6 +9,12 @@ function normalizeTaskSummary(profile) {
   return { done: labels.length, total: 6, labelsDone: labels };
 }
 
+function finiteNumber(value, fallback = null) {
+  if (value == null || value === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function normalizeStatus({ accountName, wallet, profileData = null, networkData = null, catalogData = null, stale = false, errors = [] }) {
   const profile = profileData || {};
   const badgeTotal = Array.isArray(catalogData?.badges) ? catalogData.badges.length : null;
@@ -18,11 +24,11 @@ function normalizeStatus({ accountName, wallet, profileData = null, networkData 
     networkData?._error || null,
     catalogData?._error || null,
   ].filter(Boolean);
-  const inceptionQeVal = profile.qe_balance != null ? Number(profile.qe_balance) : null;
+  const inceptionQeVal = finiteNumber(profile.qe_balance);
   const waitlistQeVal = Number(profile.waitlist_qe ?? 0);
   const totalQe = inceptionQeVal != null
     ? inceptionQeVal + waitlistQeVal
-    : (profile.qe != null ? Number(profile.qe) : null);
+    : finiteNumber(profile.qe);
   return {
     accountName,
     wallet: wallet || profile.wallet_address || null,
@@ -63,11 +69,11 @@ function buildStatusFromProfile(profile, catalog, { badgeTotalFromCatalog } = {}
   const badgeTotal = typeof badgeTotalFromCatalog === 'function' ? badgeTotalFromCatalog(catalog) : null;
   // API may return total QE as `qe` directly, or split as `qe_balance` + `waitlist_qe`
   // Prefer the canonical v1 field names (`qe_balance`, `user_rank`) when present.
-  const inceptionQeVal = Number(profile.qe_balance ?? 0);
+  const inceptionQeVal = finiteNumber(profile.qe_balance, 0);
   const waitlistQeVal = Number(profile.waitlist_qe ?? 0);
   const totalQe = profile.qe_balance != null
     ? inceptionQeVal + waitlistQeVal
-    : (profile.qe != null ? Number(profile.qe) : (inceptionQeVal + waitlistQeVal));
+    : (profile.qe != null ? finiteNumber(profile.qe, 0) : (inceptionQeVal + waitlistQeVal));
   return {
     qe: totalQe,
     inceptionQe: profile.qe_balance != null ? inceptionQeVal : totalQe,

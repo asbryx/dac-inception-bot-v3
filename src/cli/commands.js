@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { deriveWalletAddress } = require('../chain/wallet');
-const { upsertAccount, loadAccountsConfig } = require('../config/accounts');
+const { upsertAccount, loadAccountsConfig, accountNames } = require('../config/accounts');
+const { validateSelectedAccounts } = require('../config/preflight');
 const { prompt } = require('./prompts');
 const { DACBot } = require('../core/bot');
 const { createConfiguredProxyRotation } = require('../addons/proxies');
@@ -314,11 +315,16 @@ async function runCommand(args) {
   if (command === 'wallet-login-all') {
     const proxyRotation = getSharedProxyRotation(args);
     const contextFactory = makeContextFactory(args, proxyRotation);
-    const all = await runStatusAll({ contextFactory, selected: args.accounts || undefined, concurrency: args.concurrency || 1 });
-    const validAccounts = all.preflight && all.preflight.rows
-      ? all.preflight.rows.filter((row) => row.ok).map((row) => row.accountName)
-      : (all.accounts || []);
-    const rows = await Promise.all(validAccounts.map(async (account) => {
+    const configuredAccounts = accountNames();
+    let selected = args.accounts?.length ? args.accounts : configuredAccounts;
+    if (!selected.length) {
+      const discovered = await runStatusAll({ contextFactory, selected: undefined, concurrency: args.concurrency || 1 });
+      selected = discovered.accounts || [];
+    }
+    const preflight = validateSelectedAccounts(selected);
+    const validAccounts = preflight.rows.filter((row) => row.ok).map((row) => row.accountName);
+    const rows = preflight.invalid.map((row) => ({ account: row.accountName, ok: false, error: row.issues.join('; ') }));
+    rows.push(...await Promise.all(validAccounts.map(async (account) => {
       try {
         const context = await contextFactory(account);
         return {
@@ -330,7 +336,7 @@ async function runCommand(args) {
       } catch (error) {
         return { account, ok: false, error: error.message };
       }
-    }));
+    })));
     console.log([renderSummary(summarizeAccounts(rows)), renderFailuresPanel(rows.filter((row) => !row.ok))].filter(Boolean).join('\n'));
     return;
   }
@@ -377,7 +383,7 @@ async function runCommand(args) {
         if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
-        if (!args.quiet) console.log(ok
+        if (!args.quiet && !args.json) console.log(ok
           ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
           : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
       },
@@ -409,7 +415,7 @@ async function runCommand(args) {
         if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
-        if (!args.quiet) console.log(ok
+        if (!args.quiet && !args.json) console.log(ok
           ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
           : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
       },
@@ -466,7 +472,7 @@ async function runCommand(args) {
         if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
-        if (!args.quiet) console.log(ok
+        if (!args.quiet && !args.json) console.log(ok
           ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
           : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
       },
@@ -492,7 +498,7 @@ async function runCommand(args) {
         if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
-        if (!args.quiet) console.log(ok
+        if (!args.quiet && !args.json) console.log(ok
           ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
           : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
       },
@@ -519,7 +525,7 @@ async function runCommand(args) {
         if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
-        if (!args.quiet) console.log(ok
+        if (!args.quiet && !args.json) console.log(ok
           ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
           : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
       },
