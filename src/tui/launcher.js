@@ -221,8 +221,6 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
   let lastRender = 0;
   let renderTimer = null;
   const RENDER_INTERVAL_MS = args.fast ? 300 : 150;
-  const HEARTBEAT_RENDER_MS = 1000;
-
   function drawFrame() {
     renderPending = false;
     renderTimer = null;
@@ -257,8 +255,6 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     }
     drawFrame();
   }
-
-  const heartbeatTimer = useVisual ? setInterval(throttledRender, HEARTBEAT_RENDER_MS) : null;
 
   const result = await runAutomationAll({
     contextFactory,
@@ -344,7 +340,6 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     },
   });
 
-  if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (renderTimer) clearTimeout(renderTimer);
   if (useVisual) console.clear();
   console.log(renderSummaryBundle(summarizeAccounts(result.results)));
