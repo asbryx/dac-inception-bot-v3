@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { parseUnits } = require('ethers');
 
-const { DACBot, waitForTxReceipt, buildLegacyTransferRequest } = require('../src/core/bot');
+const { DACBot, waitForTxReceipt, buildLegacyTransferRequest, classifyTxSubmitError } = require('../src/core/bot');
 
 test('DACBot reuses a shared provider across instances', () => {
   const botA = new DACBot({ verbose: false, humanMode: false, fastMode: true });
@@ -98,4 +98,12 @@ test('strategy spends all surplus above reserve without per-action cap', () => {
 
   assert.equal(stake.amount, '0.5');
   assert.equal(burn.amount, '0.5');
+});
+
+
+test('classifyTxSubmitError detects RPC fee-cap mint failures', () => {
+  const classified = classifyTxSubmitError(new Error('tx fee (7.87 ether) exceeds the configured cap (1.00 ether)'));
+
+  assert.equal(classified.status, 'blocked_fee_cap');
+  assert.match(classified.reason, /exceeds the configured cap/);
 });

@@ -12,6 +12,7 @@ const STATUS = {
   DONE:     'done',
   ERROR:    'error',
   SKIPPED:  'skipped',
+  PENDING_TX: 'pending_tx',
 };
 
 const STATUS_META = {
@@ -20,6 +21,7 @@ const STATUS_META = {
   [STATUS.DONE]:    { icon: '✓', tone: C.success },
   [STATUS.ERROR]:   { icon: '✗', tone: C.error },
   [STATUS.SKIPPED]: { icon: '⊘', tone: C.warn },
+  [STATUS.PENDING_TX]: { icon: '◌', tone: C.warn },
 };
 
 // ─── Step Tracker ───────────────────────────────────────
@@ -71,10 +73,10 @@ class StepTracker {
     return this.start(step.id);
   }
 
-  finish(stepId, { detail = null, txHash = null, explorerUrl = null, amount = null, meta = {} } = {}) {
+  finish(stepId, { detail = null, txHash = null, explorerUrl = null, amount = null, status = null, meta = {} } = {}) {
     const step = this.steps.find((s) => s.id === stepId);
     if (!step) return null;
-    step.status = STATUS.DONE;
+    step.status = status === 'pending' ? STATUS.PENDING_TX : STATUS.DONE;
     step.finishedAt = Date.now();
     if (detail !== null) step.detail = detail;
     if (txHash !== null) step.txHash = txHash;
@@ -130,9 +132,10 @@ class StepTracker {
     const done = this.steps.filter((s) => s.status === STATUS.DONE).length;
     const errors = this.steps.filter((s) => s.status === STATUS.ERROR).length;
     const skipped = this.steps.filter((s) => s.status === STATUS.SKIPPED).length;
+    const pendingTx = this.steps.filter((s) => s.status === STATUS.PENDING_TX).length;
     const running = this.steps.filter((s) => s.status === STATUS.RUNNING).length;
     const pending = this.steps.filter((s) => s.status === STATUS.PENDING).length;
-    return { total, done, errors, skipped, running, pending };
+    return { total, done, errors, skipped, pendingTx, running, pending };
   }
 
   durationMs() {
@@ -149,10 +152,10 @@ class StepTracker {
 
     // Header with live progress
     const sum = this.summary();
-    const pct = sum.total ? Math.round((sum.done + sum.errors + sum.skipped) / sum.total * 100) : 0;
+    const pct = sum.total ? Math.round((sum.done + sum.errors + sum.skipped + sum.pendingTx) / sum.total * 100) : 0;
     const elapsed = this._fmtDuration(this.durationMs());
     lines.push(
-      `  ${color('Progress:', C.label)} ${color(`${pct}%`, C.primary)}  ${color(`${sum.done} done`, C.success)}  ${color(`${sum.errors} err`, C.error)}  ${color(`${sum.skipped} skip`, C.warn)}  ${color(elapsed, C.muted)}`,
+      `  ${color('Progress:', C.label)} ${color(`${pct}%`, C.primary)}  ${color(`${sum.done} done`, C.success)}  ${color(`${sum.pendingTx} pending`, C.warn)}  ${color(`${sum.errors} err`, C.error)}  ${color(`${sum.skipped} skip`, C.warn)}  ${color(elapsed, C.muted)}`,
       '',
     );
 
@@ -433,7 +436,7 @@ class AccountProgressMap {
         stepText = `${color(`Step ${idx}/${tot}:`, C.label)} ${color(state.label, C.primary)}`;
         pct = Math.round(((state.index || 0) / (state.total || 1)) * 100);
       } else if (sum.running > 0 || sum.done > 0) {
-        const finished = sum.done + sum.errors + sum.skipped;
+        const finished = sum.done + sum.errors + sum.skipped + sum.pendingTx;
         stepText = `${color(`${finished}/${sum.total} steps`, C.primary)}`;
         pct = sum.total ? Math.round((finished / sum.total) * 100) : 0;
       } else {
@@ -483,6 +486,15 @@ class AccountProgressMap {
       }
 
       lines.push(`  ${sym} ${nameCol}  ${stepText}  ${barMini}  ${pctStr}%  ${proxyBadge}`);
+      const lastInteresting = [...tracker.steps].reverse().find((step) => step.error || step.txHash || step.detail);
+      if (lastInteresting) {
+        const detailParts = [];
+        if (lastInteresting.txHash) detailParts.push(`tx=${lastInteresting.txHash}`);
+        if (lastInteresting.explorerUrl) detailParts.push(`url=${lastInteresting.explorerUrl}`);
+        if (lastInteresting.error) detailParts.push(`error=${lastInteresting.error}`);
+        if (lastInteresting.detail) detailParts.push(`detail=${lastInteresting.detail}`);
+        lines.push(`      ${color(S.pipe, C.muted)} ${color(detailParts.join(' | '), lastInteresting.error ? C.errorText : C.muted)}`);
+      }
     }
 
     return box(`${S.diamond} ${this.title}`, lines, w);

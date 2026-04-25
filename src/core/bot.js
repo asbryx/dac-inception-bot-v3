@@ -212,14 +212,27 @@ function resolveBadgeTotal(...candidates) {
 
 function formatErrorMessage(error) {
   if (!error) return 'Unknown error';
-  const parts = [];
-  if (error.shortMessage) parts.push(error.shortMessage);
-  else if (error.reason) parts.push(error.reason);
-  else if (error.message) parts.push(error.message);
+  const parts = [
+    error.shortMessage,
+    error.reason,
+    error.message,
+    error.info?.error?.message,
+    error.cause?.message,
+  ].filter(Boolean);
   const code = error.code || error.info?.error?.code;
   if (code && !String(parts[0] || '').includes(String(code))) parts.push(`code=${code}`);
-  const joined = parts.filter(Boolean).join(' | ');
+  const joined = [...new Set(parts.map(String))].join(' | ');
   return joined.length > 220 ? `${joined.slice(0, 217)}...` : joined;
+}
+
+function classifyTxSubmitError(error) {
+  const message = formatErrorMessage(error);
+  const lower = message.toLowerCase();
+  if (lower.includes('tx fee') && lower.includes('exceeds') && lower.includes('cap')) return { status: 'blocked_fee_cap', reason: message };
+  if (lower.includes('insufficient funds')) return { status: 'blocked_balance', reason: message };
+  if (lower.includes('replacement fee too low') || lower.includes('nonce too low')) return { status: 'blocked_nonce', reason: message };
+  if (lower.includes('user rejected') || lower.includes('denied transaction')) return { status: 'rejected', reason: message };
+  return { status: 'submit_failed', reason: message };
 }
 
 async function waitForTxReceipt(provider, hash, { attempts = 60, delayMs = 200, throwOnTimeout = true } = {}) {
@@ -374,8 +387,10 @@ class DACBot {
       const meta = {};
       if (txMeta && result?.hash) {
         meta.txHash = result.hash;
-        meta.explorerUrl = `${EXPLORER_URL}/tx/${result.hash}`;
+        meta.explorerUrl = result.explorer || `${EXPLORER_URL}/tx/${result.hash}`;
         meta.amount = result.amount || null;
+        meta.detail = result.status ? `${result.status}${result.reason ? ` | ${result.reason}` : ''}` : null;
+        meta.status = result.status === 'pending' ? 'pending' : null;
       }
       this._trackFinish(step.id, meta);
       return result;
@@ -786,8 +801,15 @@ class DACBot {
         this.log(`  Mint preclaim warning: ${formatErrorMessage(error)}`);
       }
       if (alreadyMinted) return { alreadyMinted: true, rankKey, rankId };
-      const tx = await this.nft.claimRank(rankId, `0x${normalizedSignature}`);
-      await waitForTxReceipt(this.provider, tx.hash);
+      let tx;
+      try {
+        tx = await this.nft.claimRank(rankId, `0x${normalizedSignature}`);
+      } catch (error) {
+        const classified = classifyTxSubmitError(error);
+        return { ok: false, rankKey, rankId, status: classified.status, reason: classified.reason, backend: { success: sig.success, rankId, chainId: sig.chain_id || null } };
+      }
+      const receipt = await waitForTxReceipt(this.provider, tx.hash, { throwOnTimeout: false });
+      if (!receipt) return { ok: false, rankKey, rankId, hash: tx.hash, status: 'pending', pending: true, reason: 'transaction broadcast but not confirmed yet', explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
       const confirm = await this.confirmMint(tx.hash, rankKey);
       if (!confirm || !confirm.success) throw new Error(confirm?.error || 'Backend did not confirm mint');
       try {
@@ -808,7 +830,11 @@ class DACBot {
   async mintRankWithRetry(rankKey, attempts = 3) {
     let lastError = null;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      try { const result = await this.mintRank(rankKey); return { ok: true, attempt, ...result }; }
+      try {
+        const result = await this.mintRank(rankKey);
+        if (result?.ok === false) return { attempt, ...result };
+        return { ok: true, attempt, ...result };
+      }
       catch (error) {
         lastError = error;
         // Lightweight recovery: just check hasMinted for this rank, don't re-scan all
@@ -833,8 +859,9 @@ class DACBot {
     for (const row of eligible) {
       const minted = await this.mintRankWithRetry(row.badgeKey, 3);
       results.push(minted);
-      if (minted.ok) this.log(`  Minted ${row.rankName}${minted.attempt ? ` (attempt ${minted.attempt})` : ''}`);
-      else this.log(`  Mint ${row.rankName}: ${minted.error}`);
+      if (minted.ok) this.log(`  Minted ${row.rankName}${minted.hash ? ` tx=${minted.hash}` : ''}${minted.attempt ? ` (attempt ${minted.attempt})` : ''}`);
+      else if (minted.status === 'pending') this.log(`  Mint ${row.rankName}: pending tx=${minted.hash}`);
+      else this.log(`  Mint ${row.rankName}: ${minted.status || 'failed'} | ${minted.reason || minted.error || 'unknown error'}`);
       await this.humanPause('mint');
     }
     return { eligible: eligible.map((row) => row.badgeKey), results };
@@ -1151,6 +1178,7 @@ module.exports = {
   buildLegacyTransferRequest,
   collectRunStepPlan,
   formatErrorMessage,
+  classifyTxSubmitError,
   deriveWalletAddress,
   loadAppConfig,
   loadAccounts,
