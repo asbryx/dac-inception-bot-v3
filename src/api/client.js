@@ -42,9 +42,10 @@ function applySetCookieHeaders(bot, response, csrf) {
   bot.setSession(mergedCookieString, csrfCookie, true);
 }
 
-function shouldFailoverResponse(response) {
+function shouldFailoverResponse(response, method = 'GET') {
   if (!response) return false;
-  return [407, 429, 502, 503, 504].includes(response.status);
+  if (method !== 'GET' && method !== 'HEAD') return false;
+  return [407, 502, 503, 504].includes(response.status);
 }
 
 async function failoverProxy(bot, failedProxy, error) {
@@ -103,7 +104,7 @@ async function fetchWithSession(bot, url, { method = 'GET', headers = {}, body, 
         signal,
         dispatcher: dispatcher || undefined,
       });
-      const proxyHttpFailure = shouldFailoverResponse(response) && activeProxy;
+      const proxyHttpFailure = shouldFailoverResponse(response, method) && activeProxy;
       if (proxyHttpFailure) {
         lastError = new Error(`Proxy HTTP ${response.status}`);
         const moved = await failoverProxy(bot, activeProxy, lastError);

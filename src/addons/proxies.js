@@ -41,6 +41,20 @@ function normalizeProxyEntry(entry) {
   };
 }
 
+function safeProxyUrl(value) {
+  if (!value) return value;
+  try {
+    const parsed = new URL(value);
+    if (parsed.username || parsed.password) {
+      parsed.username = parsed.username ? '***' : '';
+      parsed.password = parsed.password ? '***' : '';
+    }
+    return parsed.toString();
+  } catch {
+    return String(value).replace(/\/\/([^:@/]+):([^@/]+)@/, '//***:***@');
+  }
+}
+
 function normalizeFailoverSettings(raw = {}) {
   const defaults = defaultProxySettings().failover;
   return {
@@ -221,7 +235,7 @@ function createProxyRotation(entries = [], options = {}) {
       if (quarantined) status = 'quarantined';
       if (assignedTo.length && state.lastOkAt && !coolingDown && !quarantined) status = 'healthy';
       return {
-        url: proxy.url,
+        url: safeProxyUrl(proxy.url),
         label: proxy.label,
         status,
         assignedTo,
@@ -240,8 +254,8 @@ function createProxyRotation(entries = [], options = {}) {
       cooldown: rows.filter((row) => row.status === 'cooldown').length,
       quarantined: rows.filter((row) => row.status === 'quarantined').length,
       unused: rows.filter((row) => row.status === 'unused').length,
-    assignments: Array.from(assignments.values()),
-    failovers: [...failoverEvents],
+    assignments: Array.from(assignments.values()).map((item) => ({ ...item, proxyUrl: safeProxyUrl(item.proxyUrl) })),
+    failovers: failoverEvents.map((item) => ({ ...item, from: safeProxyUrl(item.from), to: safeProxyUrl(item.to) })),
     rows,
     // Expose read-only snapshots instead of mutable Maps
     _healthState: Object.fromEntries(healthState),
@@ -308,6 +322,7 @@ function resolveAccountProxy(accountName, { accountConfig = null, proxy = null, 
 module.exports = {
   defaultProxySettings,
   normalizeProxyEntry,
+  safeProxyUrl,
   normalizeFailoverSettings,
   normalizeProxySettings,
   loadProxySettings,

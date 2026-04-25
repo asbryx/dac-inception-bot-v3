@@ -18,10 +18,17 @@ function normalizeStatus({ accountName, wallet, profileData = null, networkData 
     networkData?._error || null,
     catalogData?._error || null,
   ].filter(Boolean);
+  const inceptionQeVal = profile.qe_balance != null ? Number(profile.qe_balance) : null;
+  const waitlistQeVal = Number(profile.waitlist_qe ?? 0);
+  const totalQe = inceptionQeVal != null
+    ? inceptionQeVal + waitlistQeVal
+    : (profile.qe != null ? Number(profile.qe) : null);
   return {
     accountName,
     wallet: wallet || profile.wallet_address || null,
-    qe: profile.qe_balance ?? profile.qe ?? null,
+    qe: totalQe,
+    inceptionQe: inceptionQeVal,
+    waitlistQe: waitlistQeVal,
     dacc: profile.dacc_balance ?? profile.dacc ?? null,
     rank: profile.user_rank ?? profile.rank ?? null,
     badges: profile.badges_count ?? (Array.isArray(profile.badges) ? profile.badges.length : null),
@@ -58,7 +65,9 @@ function buildStatusFromProfile(profile, catalog, { badgeTotalFromCatalog } = {}
   // Prefer the canonical v1 field names (`qe_balance`, `user_rank`) when present.
   const inceptionQeVal = Number(profile.qe_balance ?? 0);
   const waitlistQeVal = Number(profile.waitlist_qe ?? 0);
-  const totalQe = profile.qe_balance != null ? inceptionQeVal : (profile.qe != null ? Number(profile.qe) : (inceptionQeVal + waitlistQeVal));
+  const totalQe = profile.qe_balance != null
+    ? inceptionQeVal + waitlistQeVal
+    : (profile.qe != null ? Number(profile.qe) : (inceptionQeVal + waitlistQeVal));
   return {
     qe: totalQe,
     inceptionQe: profile.qe_balance != null ? inceptionQeVal : totalQe,

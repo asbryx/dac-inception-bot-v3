@@ -17,3 +17,16 @@ test('status normalization handles partial api data honestly', () => {
   assert.equal(status.stale, true);
   assert.equal(status.taskSummary.done, 1);
 });
+
+
+test('status normalization adds inception and waitlist qe', () => {
+  const status = normalizeStatus({
+    accountName: 'main01',
+    profileData: { qe_balance: 100, waitlist_qe: 25 },
+    networkData: null,
+    catalogData: null,
+  });
+  assert.equal(status.qe, 125);
+  assert.equal(status.inceptionQe, 100);
+  assert.equal(status.waitlistQe, 25);
+});

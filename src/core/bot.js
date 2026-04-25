@@ -259,8 +259,8 @@ function collectRunStepPlan(options = {}) {
   if (options.mesh) steps.push({ key: 'mesh', label: `Mesh loop x${options.meshCount || 1}` });
   if (options.burnAmount) steps.push({ key: 'burn', label: `Burn ${options.burnAmount} DACC` });
   if (options.stakeAmount) steps.push({ key: 'stake', label: `Stake ${options.stakeAmount} DACC` });
-  if (options.mintScan) steps.push({ key: 'mintScan', label: 'Scan mintable ranks' });
   if (options.crates) steps.push({ key: 'crates', label: 'Open crates' });
+  if (options.mintScan) steps.push({ key: 'mintScan', label: 'Scan mintable ranks' });
   return steps;
 }
 
@@ -697,6 +697,11 @@ class DACBot {
   async runCrates(maxOpens = 5) {
     return this._track('Open crates', async () => {
       const history = await this.crateHistory();
+      if (!history || history.error || history._status >= 400) {
+        const reason = history?.error || `crate history failed (${history?._status || 'unknown status'})`;
+        this.log(`  Crates: ${reason}`);
+        return [];
+      }
       const opensToday = history.opens_today || 0;
       const dailyLimit = history.daily_open_limit || 5;
       const remaining = Math.min(Math.max(dailyLimit - opensToday, 0), maxOpens);
@@ -749,21 +754,36 @@ class DACBot {
     const rank = RANKS.find((r) => r.badgeKey === rankKey);
     if (!rank) throw new Error(`Unknown rank key: ${rankKey}`);
     return this._track(`Mint ${rank.name}`, async () => {
-      const alreadyMintedBefore = await this.nft.hasMinted(this.wallet.address, rank.id);
+      let alreadyMintedBefore = false;
+      try {
+        alreadyMintedBefore = await this.nft.hasMinted(this.wallet.address, rank.id);
+      } catch (error) {
+        this.log(`  Mint precheck warning: ${formatErrorMessage(error)}`);
+      }
       if (alreadyMintedBefore) return { alreadyMinted: true, rankKey, rankId: rank.id };
       const sig = await this.claimSignature(rankKey);
       if (!sig.success || !sig.signature) throw new Error(sig.error || 'No mint signature returned');
-      const rankId = sig.rank_id ?? sig.rankId ?? rank.id;
-      if (typeof rankId !== 'number' || rankId < 0 || rankId > 12) throw new Error(`Invalid rank id from API: ${rankId}`);
+      const rankIdRaw = sig.rank_id ?? sig.rankId ?? rank.id;
+      const rankId = Number(rankIdRaw);
+      if (!Number.isInteger(rankId) || rankId < 0 || rankId > 12) throw new Error(`Invalid rank id from API: ${rankIdRaw}`);
       if (rankId !== rank.id) throw new Error(`Mint signature rank mismatch: expected ${rank.id}, got ${rankId}`);
       const normalizedSignature = String(sig.signature).replace(/^0x/i, '');
-      const alreadyMinted = await this.nft.hasMinted(this.wallet.address, rankId);
+      let alreadyMinted = false;
+      try {
+        alreadyMinted = await this.nft.hasMinted(this.wallet.address, rankId);
+      } catch (error) {
+        this.log(`  Mint preclaim warning: ${formatErrorMessage(error)}`);
+      }
       if (alreadyMinted) return { alreadyMinted: true, rankKey, rankId };
       const tx = await this.nft.claimRank(rankId, `0x${normalizedSignature}`);
       await waitForTxReceipt(this.provider, tx.hash);
       const confirm = await this.confirmMint(tx.hash, rankKey);
       if (!confirm || !confirm.success) throw new Error(confirm?.error || 'Backend did not confirm mint');
-      await this.recordTaskCompletion('nft_minter', 'Record NFT mint');
+      try {
+        await this.recordTaskCompletion('nft_minter', 'Record NFT mint');
+      } catch (error) {
+        this.log(`  NFT task record warning: ${formatErrorMessage(error)}`);
+      }
       // Update mint cache so future scans know this rank is minted
       try {
         const cache = readJson(MINT_CACHE_FILE, { rows: [] });
@@ -1067,6 +1087,12 @@ class DACBot {
         try { const result = await this.stakeDacc(stakeAmount); this.log(`  Stake tx: ${result.hash}`); } catch (error) { this.log(`  Stake: ${formatErrorMessage(error)}`); }
       }
 
+      if (crates) {
+        advanceStep('crates', 'Open crates');
+        this.log('\n  Crates...');
+        try { await this.runCrates(); } catch (error) { this.log(`  Crates: ${formatErrorMessage(error)}`); }
+      }
+
       if (mintScan) {
         advanceStep('mintScan', 'Scan and auto-mint eligible ranks');
         this.log('\n  Mint Scan...');
@@ -1076,12 +1102,6 @@ class DACBot {
           this.log(`  ${mintable.length ? `Potentially mintable ranks: ${mintable.map((r) => r.rankName).join(', ')}` : 'No backend-ready rank mints detected yet'}`);
           if (mintable.length) { this.log('\n  Auto-minting backend-ready ranks...'); const minted = await this.mintAllEligibleRanks(mintRows); const okCount = (minted.results || []).filter((row) => row.ok).length; const failCount = (minted.results || []).filter((row) => !row.ok).length; this.log(`  Auto-mint complete: ${okCount} success, ${failCount} failed`); this.invalidateRuntimeCache(['profile', 'status']); }
         } catch (error) { this.log(`  Mint Scan: ${formatErrorMessage(error)}`); }
-      }
-
-      if (crates) {
-        advanceStep('crates', 'Open crates');
-        this.log('\n  Crates...');
-        try { await this.runCrates(); } catch (error) { this.log(`  Crates: ${formatErrorMessage(error)}`); }
       }
     }
 

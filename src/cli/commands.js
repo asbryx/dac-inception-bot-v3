@@ -152,15 +152,19 @@ async function handleStatusAll(args) {
     selected: args.accounts || undefined,
     concurrency: 4,
     onStart: ({ account, index, total }) => {
-      if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+      if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
     },
     onComplete: ({ account, index, total, ok, error }) => {
-      if (args.quiet) return;
+      if (args.quiet || args.json) return;
       console.log(ok
         ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
         : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
     },
   });
+  if (args.json) {
+    printJson(result);
+    return;
+  }
   const parts = [renderSummaryBundle(summarizeAccounts(result.results))];
   if (proxyRotation?.snapshot) parts.push(renderProxyPanel(proxyRotation.snapshot()));
   console.log(parts.filter(Boolean).join('\n'));
@@ -168,7 +172,7 @@ async function handleStatusAll(args) {
 
 async function handleRunAll(args) {
   const proxyRotation = getSharedProxyRotation(args);
-  const liveProxyDashboard = canUseLiveProxyDashboard(proxyRotation) && !args.quiet;
+  const liveProxyDashboard = canUseLiveProxyDashboard(proxyRotation) && !args.quiet && !args.json;
   const progressRows = [];
   const renderLive = createLiveProxyRenderer('Auto All Proxy Status', proxyRotation, progressRows);
   const setProgress = (account, status, detail = '') => {
@@ -210,19 +214,23 @@ async function handleRunAll(args) {
     proxyRotation,
     onStart: ({ account, index, total }) => {
       if (liveProxyDashboard) setProgress(account, `running ${index + 1}/${total}`, 'starting');
-      else if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+      else if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
     },
     onComplete: ({ account, index, total, ok, error }) => {
       if (liveProxyDashboard) setProgress(account, ok ? `done ${index + 1}/${total}` : `failed ${index + 1}/${total}`, ok ? 'complete' : error);
-      else if (!args.quiet) console.log(ok
+      else if (!args.quiet && !args.json) console.log(ok
         ? `  ${color(S.ok, C.success)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`
         : `  ${color(S.fail, C.error)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)} ${color(error, C.errorText)}`);
     },
     onProgress: ({ account, step, message }) => {
       if (liveProxyDashboard && (step || message)) setProgress(account, step || 'running', message || '');
-      else if (!args.quiet && step && message) console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(step, C.primary)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
+      else if (!args.quiet && !args.json && step && message) console.log(`    ${color(S.dot, C.muted)} ${color(account, C.label)} ${color(S.pipe, C.muted)} ${color(step, C.primary)} ${color(S.pipe, C.muted)} ${color(message, C.label)}`);
     },
   });
+  if (args.json) {
+    printJson(result);
+    return;
+  }
   const parts = [renderSummaryBundle(summarizeAccounts(result.results))];
   if (result.reportFile) parts.push(renderActionResult('Report', [`saved ${result.reportFile}`]));
   if (proxyRotation?.snapshot) parts.push(renderProxyPanel(proxyRotation.snapshot()));
@@ -366,7 +374,7 @@ async function runCommand(args) {
       amount: args.txAmount,
       concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
-        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+        if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
         if (!args.quiet) console.log(ok
@@ -398,7 +406,7 @@ async function runCommand(args) {
       amount: args.txAmount,
       concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
-        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+        if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
         if (!args.quiet) console.log(ok
@@ -455,7 +463,7 @@ async function runCommand(args) {
       selected: args.accounts || undefined,
       concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
-        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+        if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
         if (!args.quiet) console.log(ok
@@ -481,7 +489,7 @@ async function runCommand(args) {
       selected: args.accounts || undefined,
       concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
-        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+        if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
         if (!args.quiet) console.log(ok
@@ -508,7 +516,7 @@ async function runCommand(args) {
       profile: args.profile || 'balanced',
       concurrency: args.concurrency || 1,
       onStart: ({ account, index, total }) => {
-        if (!args.quiet) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
+        if (!args.quiet && !args.json) console.log(`  ${color(S.tri, C.primary)} ${color(account, C.value)} ${color(`(${index + 1}/${total})`, C.muted)}`);
       },
       onComplete: ({ account, index, total, ok, error }) => {
         if (!args.quiet) console.log(ok
@@ -535,7 +543,7 @@ async function runCommand(args) {
 
   if (command === 'faucet-loop-all') {
     const proxyRotation = getSharedProxyRotation(args);
-    const liveProxyDashboard = canUseLiveProxyDashboard(proxyRotation) && !args.quiet;
+    const liveProxyDashboard = canUseLiveProxyDashboard(proxyRotation) && !args.quiet && !args.json;
     const progressRows = [];
     const renderLive = createLiveProxyRenderer('Faucet Loop All Proxy Status', proxyRotation, progressRows);
     const setProgress = (account, status, detail = '') => {

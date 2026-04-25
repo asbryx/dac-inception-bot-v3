@@ -2,13 +2,27 @@ const { mapLimit } = require('../utils/concurrency');
 const { formatBotError, toBotError } = require('../utils/errors');
 const { classifyFailure } = require('./reporting');
 
-function withTimeout(promise, timeoutMs, account) {
+async function withTimeout(promise, timeoutMs, account) {
   if (!timeoutMs) return promise;
   let timer;
+  let timedOut = false;
+  const timeoutError = new Error(`${account} timed out after ${timeoutMs}ms`);
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${account} timed out after ${timeoutMs}ms`)), timeoutMs);
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(timeoutError);
+    }, timeoutMs);
   });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  try {
+    return await Promise.race([promise, timeout]);
+  } catch (error) {
+    if (!timedOut) throw error;
+    // Let the account worker settle before freeing this concurrency slot.
+    await promise.catch(() => null);
+    throw timeoutError;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function runAcrossAccounts(accounts, worker, { onStart = null, onComplete = null, concurrency = 1, action = 'account-run', timeoutMs = 0 } = {}) {

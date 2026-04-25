@@ -66,24 +66,31 @@ async function runFaucetLoopAll({ contextFactory, selected = null, durationHours
       try {
         const result = await entry.bot.runFaucet();
         entry.runs.push({ cycle, timestamp, ok: !!result?.success, result });
-        if (typeof onProgress === 'function') onProgress({ account: entry.account, cycle, status: result?.success ? 'claimed' : 'skipped', detail: result?.success ? `+${result.amount ?? '?'} DACC` : (result?.error || result?.code || 'no reward') });
+        const ok = !!result?.success;
+        if (typeof onProgress === 'function') onProgress({ account: entry.account, cycle, status: ok ? 'claimed' : 'skipped', detail: ok ? `+${result.amount ?? '?'} DACC` : (result?.error || result?.code || 'no reward') });
+        return { ok, error: ok ? null : (result?.error || result?.code || 'no reward') };
       } catch (error) {
         entry.runs.push({ cycle, timestamp, ok: false, error: error.message });
         if (typeof onProgress === 'function') onProgress({ account: entry.account, cycle, status: 'failed', detail: error.message });
+        return { ok: false, error: error.message };
       }
     };
 
     if (concurrency > 1) {
       await runAcrossAccounts(
         perAccount.map((entry) => entry.account),
-        (accountName, index) => processEntry(perAccount.find((entry) => entry.account === accountName), index),
+        async (accountName, index) => {
+          const outcome = await processEntry(perAccount.find((entry) => entry.account === accountName), index);
+          if (!outcome.ok) throw new Error(outcome.error || 'faucet attempt failed');
+          return outcome;
+        },
         { concurrency, action: 'faucet-loop-cycle', onStart, onComplete },
       );
     } else {
       for (let index = 0; index < perAccount.length; index += 1) {
         if (onStart) onStart({ account: perAccount[index].account, index, total: perAccount.length });
-        await processEntry(perAccount[index], index);
-        if (onComplete) onComplete({ account: perAccount[index].account, index, total: perAccount.length, ok: true });
+        const outcome = await processEntry(perAccount[index], index);
+        if (onComplete) onComplete({ account: perAccount[index].account, index, total: perAccount.length, ok: outcome.ok, error: outcome.error });
       }
     }
 
