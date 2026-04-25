@@ -69,7 +69,8 @@ function renderFaucetLoopBanner(progressMap, proxiesMap, totalAccounts, currentA
     } else if (p.ok === false) {
       lines.push(`  ${prefix} ${color('✗', C.error)} ${color(name, C.muted)} ${proxyBadge} ${color(p.error || 'failed', C.errorText)}`);
     } else if (p.cycle) {
-      lines.push(`  ${prefix} ${color('◐', C.primary)} ${color(name, C.value)} ${proxyBadge} cycle ${color(String(p.cycle), C.primary)} ${color(p.status || '', C.muted)}`);
+      const detail = p.detail ? color(` | ${p.detail}`, C.muted) : '';
+      lines.push(`  ${prefix} ${color('◐', C.primary)} ${color(name, C.value)} ${proxyBadge} cycle ${color(String(p.cycle), C.primary)} ${color(p.status || '', C.muted)}${detail}`);
     } else {
       lines.push(`  ${prefix} ${color('○', C.muted)} ${color(name, C.muted)} ${proxyBadge} ${color('queued', C.muted)}`);
     }
