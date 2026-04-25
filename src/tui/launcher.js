@@ -210,31 +210,52 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
   const totalAccounts = names.length;
   const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96, accountNames: names, proxyRotation: rotation });
 
-  // Throttle visual renders so fast mode doesn't spend all its time clearing the terminal
+  // Keep rendering separate from account work. If the terminal stops draining
+  // output, skip frames instead of letting dashboard writes affect automation.
   let renderPending = false;
+  let renderQueued = false;
+  let outputBusy = false;
   let lastRender = 0;
   let renderTimer = null;
   const RENDER_INTERVAL_MS = args.fast ? 300 : 150;
+  const HEARTBEAT_RENDER_MS = 1000;
+
+  function drawFrame() {
+    renderPending = false;
+    renderTimer = null;
+    if (!useVisual) return;
+    if (outputBusy) {
+      renderQueued = true;
+      return;
+    }
+
+    lastRender = Date.now();
+    const frame = `${progressMap.render()}\n`;
+    console.clear();
+    outputBusy = !process.stdout.write(frame, () => {
+      outputBusy = false;
+      if (renderQueued) {
+        renderQueued = false;
+        throttledRender();
+      }
+    });
+  }
+
   function throttledRender() {
     if (!useVisual) return;
     const now = Date.now();
-    if (now - lastRender < RENDER_INTERVAL_MS) {
+    const waitMs = Math.max(0, RENDER_INTERVAL_MS - (now - lastRender));
+    if (waitMs > 0) {
       if (!renderPending) {
         renderPending = true;
-        renderTimer = setTimeout(() => {
-          renderPending = false;
-          renderTimer = null;
-          lastRender = Date.now();
-          console.clear();
-          process.stdout.write(`${progressMap.render()}\n`);
-        }, RENDER_INTERVAL_MS - (now - lastRender));
+        renderTimer = setTimeout(drawFrame, waitMs);
       }
       return;
     }
-    lastRender = now;
-    console.clear();
-    process.stdout.write(`${progressMap.render()}\n`);
+    drawFrame();
   }
+
+  const heartbeatTimer = useVisual ? setInterval(throttledRender, HEARTBEAT_RENDER_MS) : null;
 
   const result = await runAutomationAll({
     contextFactory,
@@ -320,6 +341,7 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     },
   });
 
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (renderTimer) clearTimeout(renderTimer);
   if (useVisual) console.clear();
   console.log(renderSummaryBundle(summarizeAccounts(result.results)));
