@@ -90,10 +90,14 @@ Before running automation, you get a toggle panel where you choose exactly what 
 
 **Live Progress Dashboard**
 During multi-account runs, a real-time dashboard shows:
-- Per-account status: `✓` done / `✗` failed / `▶` running / `○` queued
-- Current step per account (e.g., `faucet`, `tasks`, `mintScan`)
+- Per-account status: `done` / `failed` / `running` / `queued`
+- Current step per account (for example: `faucet`, `tasks`, `receive`, `mintScan`)
 - Assigned proxy label and health indicator
+- Last transaction hash and explorer URL when a chain action broadcasts successfully
+- Failed step, error message, and elapsed time when an account stops
 - Fleet progress: `Completed: 8/10 | Failed: 1 | Running: 1`
+
+The dashboard is intentionally compact, but every account still keeps enough context to answer: what was it doing, where did it fail, which proxy was used, and which tx hash should be checked on the explorer.
 
 The TUI throttles renders to ~300ms to keep CPU usage low even under heavy concurrency.
 
@@ -123,6 +127,7 @@ The TUI throttles renders to ~300ms to keep CPU usage low even under heavy concu
 - **Account status** — detailed single-account status with optional JSON output
 - **Fleet summary** — compact multi-account dashboard via `status-all`
 - **Live progress dashboard** — real-time account status icons during multi-account runs
+- **Per-process reports** — each account row keeps the current step, failed step, last error, tx hash, explorer link, proxy, and elapsed time
 - **Proxy status per account** — live TUI shows assigned proxy label and health next to each account row
 - **Tracking snapshots** — record and compare account state over time
 - **Faucet loop** — automated faucet claims with configurable duration and interval
@@ -381,6 +386,36 @@ node src/cli/main.js campaign-all --interval 360
 # Faucet claims every 45 min for 12 hours
 node src/cli/main.js faucet-loop-all --duration-hours 12 --interval 45
 ```
+
+---
+
+## Detailed Run Reports
+
+Multi-account automation is designed to stay readable without hiding useful debugging details. For each account/process, the bot reports:
+
+| Field | Meaning |
+|---|---|
+| `account` | Account label from `dac.config.json` |
+| `status` | `queued`, `running`, `done`, or `failed` |
+| `step` | Current or final automation step, such as `Claim faucet`, `Receive quest`, or `Scan mintable ranks` |
+| `failedAt` | Step that failed, when the account stops early |
+| `lastError` | Raw failure message, including RPC/API/proxy errors |
+| `txHash` | Last transaction hash if a tx was broadcast before completion or failure |
+| `explorer` | DAC explorer link for the last known tx |
+| `proxy` | Proxy assigned to the account, useful for finding bad routes |
+| `elapsed` | Runtime for that account/process |
+
+Typical failure interpretation:
+
+| Error | Meaning | What to do |
+|---|---|---|
+| `ECONNRESET` / `socket hang up` | Server, RPC, or proxy closed the connection | Retry the account; rotate proxy if repeated |
+| `504` / timeout | DAC RPC/API gateway did not answer in time | Wait and retry; if tx hash exists, check explorer before resending |
+| `Transaction ... was not confirmed` | Tx was broadcast but receipt was not seen before timeout | Treat as pending first; check explorer and rerun later if needed |
+| `replacement transaction underpriced` / `replacement fee too low` | Same nonce is already pending and replacement gas is too low | Wait for pending tx or increase fee before replacing |
+| `insufficient funds` | Wallet balance cannot cover value plus gas | Refill wallet or reduce tx amount/count |
+
+Important tx safety rule: if a failed row already has a `txHash`, do not assume the action failed on-chain. The tx may still be pending or confirmed after the bot timeout. Check the explorer link first, then decide whether to retry.
 
 ---
 
