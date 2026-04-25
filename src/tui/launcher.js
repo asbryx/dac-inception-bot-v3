@@ -9,7 +9,7 @@ const {
   renderLoopPanel,
 } = require('./panels');
 const { color, C, theme, ANSI } = require('./theme');
-const { box, progressBar, colorProgressBar } = require('./renderer');
+const { box, progressBar, colorProgressBar, terminalWidth } = require('./renderer');
 const { summarizeAccounts } = require('../domain/summary');
 const { createAccountContext, createSingleAccountContext } = require('../domain/context');
 const { runStatusAll } = require('../orchestration/status-all');
@@ -208,7 +208,7 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
   // Defensive: ensure we have a proxy rotation object for display
   const rotation = proxyRotation || getProxyRotation();
   const totalAccounts = names.length;
-  const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: 96, accountNames: names, proxyRotation: rotation });
+  const progressMap = new AccountProgressMap({ title: 'Multi-Account Automation', width: terminalWidth(), accountNames: names, proxyRotation: rotation });
 
   // Keep rendering separate from account work. If the terminal stops draining
   // output, skip frames instead of letting dashboard writes affect automation.

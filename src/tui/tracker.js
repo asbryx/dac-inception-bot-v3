@@ -462,8 +462,11 @@ class AccountProgressMap {
       const barMini = this._miniBar(pct, 10);
       const pctStr = color(String(pct).padStart(3), pct >= 80 ? C.success : pct >= 40 ? C.warn : C.primary);
 
-      // Compose row with dynamic truncation for step text
-      const fixedPartsWidth = stripAnsi(`  ${sym} ${name}  ${barMini}  ${pctStr}%  ${proxyBadge}`).length;
+      const rowHint = this._rowHint(tracker, state);
+      const rowSuffix = rowHint ? `  ${rowHint}` : '';
+
+      // Compose row with dynamic truncation for step text, including right-side details.
+      const fixedPartsWidth = stripAnsi(`  ${sym} ${name}  ${barMini}  ${pctStr}%  ${proxyBadge}${rowSuffix}`).length;
       const maxStepWidth = Math.max(12, inner - fixedPartsWidth - 4);
       let cleanStep = stripAnsi(stepText);
       if (cleanStep.length > maxStepWidth) {
@@ -492,8 +495,6 @@ class AccountProgressMap {
         stepText = truncated;
       }
 
-      const rowHint = this._rowHint(tracker, state);
-      const rowSuffix = rowHint ? `  ${rowHint}` : '';
       lines.push(`  ${sym} ${nameCol}  ${stepText}  ${barMini}  ${pctStr}%  ${proxyBadge}${rowSuffix}`);
     }
 
