@@ -411,6 +411,13 @@ class DACBot {
       this._trackFinish(step.id, meta);
       return result;
     } catch (error) {
+      if (error?.txHash) {
+        this._trackTx(step.id, {
+          txHash: error.txHash,
+          explorerUrl: error.explorer || `${EXPLORER_URL}/tx/${error.txHash}`,
+          amount: error.amount || null,
+        });
+      }
       this._trackFail(step.id, error);
       throw error;
     }
@@ -566,13 +573,18 @@ class DACBot {
       if (returnAmount <= 0n) throw new Error(`Child wallet ${child.address} has no safe return amount after gas`);
       const rxRequest = await buildLegacyTransferRequest(childSigner, this.provider, { to: this.wallet.address, value: returnAmount, gasLimit });
       const rxTx = await childSigner.sendTransaction(rxRequest);
-      await waitForTxReceipt(this.provider, rxTx.hash);
-      this.log(`  RX loop: ${shortAddr(child.address)} -> ${shortAddr(this.wallet.address)} ${fmtNum(ethers.formatEther(returnAmount))} DACC`);
+      const receipt = await waitForTxReceipt(this.provider, rxTx.hash, { throwOnTimeout: false });
+      const status = receipt ? 'confirmed' : 'pending';
+      this.log(`  RX loop: ${shortAddr(child.address)} -> ${shortAddr(this.wallet.address)} ${fmtNum(ethers.formatEther(returnAmount))} DACC (${status})`);
       this.log(`     ${EXPLORER_URL}/tx/${rxTx.hash}`);
-      loops.push({ via: 'child', from: child.address, to: this.wallet.address, amount: ethers.formatEther(returnAmount), hash: rxTx.hash });
+      loops.push({ via: 'child', from: child.address, to: this.wallet.address, amount: ethers.formatEther(returnAmount), hash: rxTx.hash, status, pending: !receipt, explorer: `${EXPLORER_URL}/tx/${rxTx.hash}` });
       await this.humanPause('tx');
     }
     const sync = await this.sync();
+    const pending = loops.filter((row) => row.pending);
+    if (pending.length) {
+      throw new Error(`Receive transaction still pending: ${pending.map((row) => row.hash).join(', ')}`);
+    }
     return { mode: 'child-wallets', received: loops, sync };
   }
 
@@ -594,13 +606,18 @@ class DACBot {
       if (balance < requiredWei) { const topUp = requiredWei - balance; const fundRequest = await buildLegacyTransferRequest(this.wallet, this.provider, { to: peerWallet.address, value: topUp }); const fundTx = await this.wallet.sendTransaction(fundRequest); await waitForTxReceipt(this.provider, fundTx.hash); this.log(`  Seeded peer ${peer.name} (${shortAddr(peerWallet.address)}) with ${fmtNum(ethers.formatEther(topUp))} DACC`); }
       const peerRequest = await buildLegacyTransferRequest(peerWallet, this.provider, { to: this.wallet.address, value: amountWei, gasLimit });
       const tx = await peerWallet.sendTransaction(peerRequest);
-      await waitForTxReceipt(this.provider, tx.hash);
-      this.log(`  RX mesh: ${peer.name} ${shortAddr(peerWallet.address)} -> ${shortAddr(this.wallet.address)} ${amount} DACC`);
+      const receipt = await waitForTxReceipt(this.provider, tx.hash, { throwOnTimeout: false });
+      const status = receipt ? 'confirmed' : 'pending';
+      this.log(`  RX mesh: ${peer.name} ${shortAddr(peerWallet.address)} -> ${shortAddr(this.wallet.address)} ${amount} DACC (${status})`);
       this.log(`     ${EXPLORER_URL}/tx/${tx.hash}`);
-      received.push({ via: 'account', account: peer.name, from: peerWallet.address, to: this.wallet.address, amount, hash: tx.hash });
+      received.push({ via: 'account', account: peer.name, from: peerWallet.address, to: this.wallet.address, amount, hash: tx.hash, status, pending: !receipt, explorer: `${EXPLORER_URL}/tx/${tx.hash}` });
       await this.humanPause('tx');
     }
     const sync = await this.sync();
+    const pending = received.filter((row) => row.pending);
+    if (pending.length) {
+      throw new Error(`Receive transaction still pending: ${pending.map((row) => row.hash).join(', ')}`);
+    }
     await this.recordTaskCompletion('tx_receive', 'Record received transaction');
     return { mode: 'account-mesh', received, sync };
   }
@@ -621,7 +638,11 @@ class DACBot {
       const receipt = await waitForTxReceipt(this.provider, tx.hash, { throwOnTimeout: false });
       if (!receipt) {
         this.log(`  Burn pending: ${tx.hash}`);
-        return { hash: tx.hash, amount: amountEth, status: 'pending', pending: true, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+        const error = new Error(`Burn transaction still pending: ${tx.hash}`);
+        error.txHash = tx.hash;
+        error.amount = amountEth;
+        error.explorer = `${EXPLORER_URL}/tx/${tx.hash}`;
+        throw error;
       }
       const confirm = await this.confirmBurn(tx.hash);
       if (confirm?.success === false) throw new Error(confirm.error || 'Burn backend confirmation failed');
@@ -641,7 +662,11 @@ class DACBot {
       const receipt = await waitForTxReceipt(this.provider, tx.hash, { throwOnTimeout: false });
       if (!receipt) {
         this.log(`  Stake pending: ${tx.hash}`);
-        return { hash: tx.hash, amount: amountEth, status: 'pending', pending: true, explorer: `${EXPLORER_URL}/tx/${tx.hash}` };
+        const error = new Error(`Stake transaction still pending: ${tx.hash}`);
+        error.txHash = tx.hash;
+        error.amount = amountEth;
+        error.explorer = `${EXPLORER_URL}/tx/${tx.hash}`;
+        throw error;
       }
       const confirm = await this.confirmStake(tx.hash);
       if (confirm?.success === false) throw new Error(confirm.error || 'Stake backend confirmation failed');
@@ -928,14 +953,16 @@ class DACBot {
     if (status.faucetAvailable) actions.push({ type: 'faucet', reason: 'faucet is available' });
     else if (Number.isFinite(Number(status.faucetCooldownSeconds)) && Number(status.faucetCooldownSeconds) <= 300) actions.push({ type: 'faucet', reason: 'faucet may be available or close to cooldown' });
     const txBudget = ethers.parseEther(String(config.txAmount)) * BigInt(config.txCount);
-    if (this.wallet && spendable >= txBudget && status.txCount < 10) actions.push({ type: 'tx-grind', count: config.txCount, amount: config.txAmount, reason: 'low transaction count; grind minimal surplus for tx badges' });
+    const shouldTxGrind = this.wallet && spendable >= txBudget && status.txCount < 10;
+    if (shouldTxGrind) actions.push({ type: 'tx-grind', count: config.txCount, amount: config.txAmount, reason: 'low transaction count; grind minimal surplus for tx badges' });
+    const allocatable = shouldTxGrind && spendable > txBudget ? spendable - txBudget : spendable;
     const minStake = ethers.parseEther(String(config.minStakeAmount));
     const minBurn = ethers.parseEther(String(config.minBurnAmount));
     const stakeWeight = Math.max(0, Math.floor(Number(config.stakeRatio || 0) * 10000));
     const burnWeight = Math.max(0, Math.floor(Number(config.burnRatio || 0) * 10000));
     const totalWeight = BigInt(stakeWeight + burnWeight);
-    const stakeAmount = totalWeight > 0n ? (spendable * BigInt(stakeWeight)) / totalWeight : 0n;
-    const burnAmount = totalWeight > 0n ? spendable - stakeAmount : 0n;
+    const stakeAmount = totalWeight > 0n ? (allocatable * BigInt(stakeWeight)) / totalWeight : 0n;
+    const burnAmount = totalWeight > 0n ? allocatable - stakeAmount : 0n;
     if (this.wallet && stakeAmount >= minStake) actions.push({ type: 'stake', amount: ethers.formatEther(stakeAmount), reason: 'stake surplus DACC while preserving reserve' });
     if (this.wallet && burnAmount >= minBurn) actions.push({ type: 'burn', amount: ethers.formatEther(burnAmount), reason: 'burn surplus DACC while preserving reserve' });
     if (status.qe >= (crateHistory.cost_per_open || 150) && (crateHistory.opens_today || 0) < (crateHistory.daily_open_limit || 5)) actions.push({ type: 'crates', reason: 'QE is high enough and daily crate capacity remains' });

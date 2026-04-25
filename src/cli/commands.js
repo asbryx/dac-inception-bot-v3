@@ -39,7 +39,6 @@ const {
 } = require('../tui/panels');
 const { color, C, theme } = require('../tui/theme');
 const S = theme.symbols;
-
 function buildRunOptions(args, overrides = {}) {
   return {
     crates: true,

@@ -25,7 +25,6 @@ const { StepTracker, LiveTracker, AccountProgressMap } = require('./tracker');
 const { loadFeatureState, saveFeatureState, getFeaturesByCategory, buildAutoAllOptionsFromState, buildDefaultState } = require('../domain/features');
 
 const S = theme.symbols;
-
 function getProxyRotation() {
   return createConfiguredProxyRotation(loadAccountsConfig());
 }
@@ -261,6 +260,7 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     options,
     selected: args.accounts || undefined,
     concurrency: args.concurrency || 1,
+    timeoutMs: args.accountTimeoutMs || 0,
     onStart: ({ account, index, total }) => {
       progressMap.createTracker(account, `Automation — ${account}`);
       progressMap.setCurrent(account);

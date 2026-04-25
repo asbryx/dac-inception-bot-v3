@@ -100,6 +100,22 @@ test('strategy spends all surplus above reserve without per-action cap', () => {
   assert.equal(burn.amount, '0.5');
 });
 
+test('strategy subtracts tx grind budget before staking and burning surplus', () => {
+  const bot = new DACBot({ verbose: false, humanMode: false, fastMode: true });
+  bot.wallet = { address: '0x1111111111111111111111111111111111111111' };
+  const plan = bot.buildStrategy(
+    { dacc: '1.25', qe: 1000, txCount: 0, faucetAvailable: false, faucetCooldownSeconds: 999 },
+    { cost_per_open: 999999, opens_today: 0, daily_open_limit: 5 },
+    { reserveDacc: '0.25', txAmount: '0.1', txCount: 3, minBurnAmount: '0.01', minStakeAmount: '0.01', burnRatio: 0.25, stakeRatio: 0.25 },
+  );
+
+  const stake = plan.actions.find((action) => action.type === 'stake');
+  const burn = plan.actions.find((action) => action.type === 'burn');
+
+  assert.equal(stake.amount, '0.35');
+  assert.equal(burn.amount, '0.35');
+});
+
 
 test('classifyTxSubmitError detects RPC fee-cap mint failures', () => {
   const classified = classifyTxSubmitError(new Error('tx fee (7.87 ether) exceeds the configured cap (1.00 ether)'));

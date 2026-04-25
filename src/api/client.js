@@ -127,10 +127,11 @@ async function fetchWithSession(bot, url, { method = 'GET', headers = {}, body, 
         if (activeProxy && bot.proxyRotation?.enabled) bot.proxyRotation.markFailure(activeProxy, lastError);
       }
       if (activeProxy && bot.proxyRotation?.enabled && !proxyHttpFailure) bot.proxyRotation.markSuccess(activeProxy);
-      applySetCookieHeaders(bot, response, csrf);
+      if (!sessionOverride) applySetCookieHeaders(bot, response, csrf);
       return response;
     } catch (error) {
       lastError = error;
+      if (signal?.aborted || error?.name === 'AbortError') throw error;
       const moved = await failoverProxy(bot, activeProxy, error);
       if (!moved) throw error;
     }
