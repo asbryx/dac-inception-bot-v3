@@ -288,6 +288,7 @@ class AccountProgressMap {
     this.proxies = new Map(); // accountName -> { label, source, healthy }
     this.states = new Map(); // accountName -> { label, index, total, done, error, failedStep, startTime, elapsedMs }
     this.currentAccount = null;
+    this.focusAccount = null;
     // Pre-seed empty trackers so queued accounts appear immediately
     for (const name of accountNames) {
       if (!this.trackers.has(name)) {
@@ -332,6 +333,7 @@ class AccountProgressMap {
 
   setCurrent(accountName) {
     this.currentAccount = accountName;
+    this.focusAccount = accountName;
   }
 
   setProxy(accountName, { label, source, healthy } = {}) {
@@ -365,6 +367,7 @@ class AccountProgressMap {
     s.failedStep = failedStep;
     s.elapsedMs = Date.now() - (s.startTime || Date.now());
     this.states.set(accountName, s);
+    this.focusAccount = accountName;
   }
 
   // ─── Rendering ────────────────────────────────────────
@@ -489,38 +492,132 @@ class AccountProgressMap {
         stepText = truncated;
       }
 
-      lines.push(`  ${sym} ${nameCol}  ${stepText}  ${barMini}  ${pctStr}%  ${proxyBadge}`);
+      const rowHint = this._rowHint(tracker, state);
+      const rowSuffix = rowHint ? `  ${rowHint}` : '';
+      lines.push(`  ${sym} ${nameCol}  ${stepText}  ${barMini}  ${pctStr}%  ${proxyBadge}${rowSuffix}`);
+    }
 
-      const activeStep = this._findStepForState(tracker, state);
-      const activeParts = [];
-      if (activeStep?.txHash) activeParts.push(`tx=${activeStep.txHash}`);
-      if (activeStep?.explorerUrl) activeParts.push(`url=${activeStep.explorerUrl}`);
-      if (activeStep?.error) activeParts.push(`error=${activeStep.error}`);
-      if (activeStep?.detail) activeParts.push(`detail=${activeStep.detail}`);
-      if (state.detail && !activeParts.some((p) => p.includes(state.detail))) activeParts.push(`detail=${state.detail}`);
-
-      const lastTxStep = [...tracker.steps].reverse().find((step) => step.txHash || step.explorerUrl);
-      const lastErrorStep = [...tracker.steps].reverse().find((step) => step.error);
-      const infoLines = [];
-      if (activeParts.length) infoLines.push({ label: 'now', text: activeParts.join(' | '), error: !!activeStep?.error });
-      if (lastTxStep && lastTxStep !== activeStep) {
-        const txParts = [];
-        if (lastTxStep.txHash) txParts.push(`tx=${lastTxStep.txHash}`);
-        if (lastTxStep.explorerUrl) txParts.push(`url=${lastTxStep.explorerUrl}`);
-        if (lastTxStep.detail) txParts.push(`detail=${lastTxStep.detail}`);
-        infoLines.push({ label: 'last tx', text: txParts.join(' | '), error: false });
-      }
-      if (lastErrorStep && lastErrorStep !== activeStep && lastErrorStep !== lastTxStep) {
-        infoLines.push({ label: 'last error', text: lastErrorStep.error, error: true });
-      }
-
-      for (const info of infoLines.slice(0, 2)) {
-        const tone = info.error ? C.errorText : C.muted;
-        lines.push(`      ${color(S.pipe, C.muted)} ${color(info.label, C.label)} ${color(info.text, tone)}`);
-      }
+    const focus = this._pickFocusAccount(entries);
+    if (focus) {
+      lines.push('', ...this._renderDetailPanel(focus.name, focus.tracker, this.states.get(focus.name) || {}, inner));
     }
 
     return box(`${S.diamond} ${this.title}`, lines, w);
+  }
+
+  _pickFocusAccount(entries) {
+    const named = entries.filter(([name]) => name !== null);
+    const explicit = named.find(([name]) => name === this.focusAccount);
+    if (explicit) return { name: explicit[0], tracker: explicit[1] };
+
+    const failed = [...named].reverse().find(([name]) => this.states.get(name)?.error);
+    if (failed) return { name: failed[0], tracker: failed[1] };
+
+    const current = named.find(([name]) => name === this.currentAccount);
+    if (current) return { name: current[0], tracker: current[1] };
+
+    const running = named.find(([name, tracker]) => this.states.get(name)?.label || tracker.summary().running > 0);
+    if (running) return { name: running[0], tracker: running[1] };
+
+    const withDetail = [...named].reverse().find(([, tracker]) => tracker.steps.some((step) => step.txHash || step.error || step.detail));
+    return withDetail ? { name: withDetail[0], tracker: withDetail[1] } : null;
+  }
+
+  _renderDetailPanel(name, tracker, state, inner) {
+    const activeStep = this._findStepForState(tracker, state);
+    const lastTxStep = [...tracker.steps].reverse().find((step) => step.txHash || step.explorerUrl);
+    const lastErrorStep = [...tracker.steps].reverse().find((step) => step.error);
+    const proxyInfo = this.proxies.get(name);
+    const lines = [];
+
+    lines.push(`  ${color('Details:', C.label)} ${color(name, C.value)}`);
+    const statusParts = [];
+    if (state.error) statusParts.push(color(`failed at ${state.failedStep || state.label || 'unknown step'}`, C.error));
+    else if (state.done) statusParts.push(color('done', C.success));
+    else if (state.label) statusParts.push(color(`step ${state.index ?? '?'}/${state.total ?? '?'} ${state.label}`, C.primary));
+    else statusParts.push(color('queued', C.muted));
+    if (proxyInfo) statusParts.push(color(`proxy ${proxyInfo.label}`, proxyInfo.healthy ? C.success : C.error));
+    if (state.elapsedMs) statusParts.push(color(this._fmtTime(state.elapsedMs), C.muted));
+    lines.push(`      ${statusParts.join(color(' | ', C.muted))}`);
+
+    if (activeStep?.detail || state.detail) {
+      lines.push(`      ${color('Now:', C.label)} ${color(activeStep?.detail || state.detail, C.muted)}`);
+    }
+
+    const err = activeStep?.error || lastErrorStep?.error || state.error;
+    if (err) {
+      const diagnosis = this._explainError(err);
+      lines.push(`      ${color('Error:', C.label)} ${color(err, C.errorText)}`);
+      lines.push(`      ${color('Diagnosis:', C.label)} ${color(diagnosis.summary, C.warn)}`);
+      lines.push(`      ${color('Action:', C.label)} ${color(diagnosis.action, C.muted)}`);
+    }
+
+    const txStep = activeStep?.txHash || activeStep?.explorerUrl ? activeStep : lastTxStep;
+    if (txStep) {
+      const status = txStep.detail ? ` ${color(`(${txStep.detail})`, C.warn)}` : '';
+      if (txStep.txHash) lines.push(`      ${color('Tx:', C.label)} ${color(txStep.txHash, C.primary)}${status}`);
+      if (txStep.explorerUrl) lines.push(`      ${color('Explorer:', C.label)} ${color(txStep.explorerUrl, C.muted)}`);
+    }
+
+    return lines.slice(0, Math.max(5, Math.floor(inner / 12)));
+  }
+
+  _rowHint(tracker, state) {
+    const activeStep = this._findStepForState(tracker, state);
+    const lastTxStep = [...tracker.steps].reverse().find((step) => step.txHash || step.explorerUrl);
+    const lastErrorStep = [...tracker.steps].reverse().find((step) => step.error);
+    const err = activeStep?.error || lastErrorStep?.error || state.error;
+    if (err) return color(`err ${this._shortError(err, 28)}`, C.errorText);
+    const txStep = activeStep?.txHash || activeStep?.explorerUrl ? activeStep : lastTxStep;
+    if (txStep?.txHash) {
+      const status = txStep.detail ? ` ${txStep.detail}` : '';
+      return color(`tx ${shortHash(txStep.txHash)}${status}`, C.muted);
+    }
+    return null;
+  }
+
+  _shortError(error, max = 48) {
+    const text = this._explainError(error).summary || String(error || 'unknown error');
+    return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+  }
+
+  _explainError(error) {
+    const text = String(error || 'unknown error');
+    const lower = text.toLowerCase();
+    if (lower.includes('not confirmed') || lower.includes('timeout')) {
+      return {
+        summary: 'Transaction was submitted but not confirmed before timeout.',
+        action: 'Check the explorer status before retrying; it may still confirm later.',
+      };
+    }
+    if (lower.includes('replacement fee too low') || lower.includes('underpriced')) {
+      return {
+        summary: 'Replacement transaction was rejected because the gas bump is too small.',
+        action: 'Wait for the pending nonce or retry with a higher max fee / priority fee.',
+      };
+    }
+    if (lower.includes('nonce too low')) {
+      return {
+        summary: 'Nonce was already used by another confirmed or pending transaction.',
+        action: 'Refresh wallet state and avoid running the same account in parallel.',
+      };
+    }
+    if (lower.includes('insufficient funds')) {
+      return {
+        summary: 'Wallet balance is too low to pay gas or value.',
+        action: 'Fund the wallet before retrying this step.',
+      };
+    }
+    if (lower.includes('execution reverted')) {
+      return {
+        summary: 'Contract rejected the transaction.',
+        action: 'Check eligibility, mint state, and contract revert reason before retrying.',
+      };
+    }
+    return {
+      summary: text.length > 80 ? `${text.slice(0, 77)}...` : text,
+      action: 'Inspect the full error and last transaction before retrying.',
+    };
   }
 
   _findStepForState(tracker, state) {
