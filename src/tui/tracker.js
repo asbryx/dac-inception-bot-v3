@@ -436,7 +436,8 @@ class AccountProgressMap {
       } else if (state.label) {
         const idx = state.index ?? '?';
         const tot = state.total ?? '?';
-        stepText = `${color(`Step ${idx}/${tot}:`, C.label)} ${color(state.label, C.primary)}`;
+        const liveLabel = state.detail ? `${state.label} -> ${state.detail}` : state.label;
+        stepText = `${color(`Step ${idx}/${tot}:`, C.label)} ${color(liveLabel, C.primary)}`;
         pct = Math.round(((state.index || 0) / (state.total || 1)) * 100);
       } else if (sum.running > 0 || sum.done > 0) {
         const finished = sum.done + sum.errors + sum.skipped + sum.pendingTx;

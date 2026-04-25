@@ -268,14 +268,30 @@ function collectRunStepPlan(options = {}) {
   if (options.tasks) steps.push({ key: 'tasks', label: 'Complete social tasks' });
   if (options.badges) steps.push({ key: 'badges', label: 'Claim badges' });
   if (options.faucet) steps.push({ key: 'faucet', label: 'Claim faucet' });
-  if (options.txGrind) steps.push({ key: 'txGrind', label: `Send TX x${options.txCount || STRATEGY_DEFAULTS.txCount}` });
+  if (options.txGrind || options.strategy) steps.push({ key: 'txGrind', label: `Send TX x${options.txCount || STRATEGY_DEFAULTS.txCount}` });
   if (options.receive) steps.push({ key: 'receive', label: `Receive quest x${options.receiveCount || 1}` });
   if (options.mesh) steps.push({ key: 'mesh', label: `Mesh loop x${options.meshCount || 1}` });
-  if (options.burnAmount) steps.push({ key: 'burn', label: `Burn ${options.burnAmount} DACC` });
-  if (options.stakeAmount) steps.push({ key: 'stake', label: `Stake ${options.stakeAmount} DACC` });
+  if (options.burnAmount || options.strategy) steps.push({ key: 'burn', label: options.burnAmount ? `Burn ${options.burnAmount} DACC` : 'Burn strategy surplus' });
+  if (options.stakeAmount || options.strategy) steps.push({ key: 'stake', label: options.stakeAmount ? `Stake ${options.stakeAmount} DACC` : 'Stake strategy surplus' });
   if (options.crates) steps.push({ key: 'crates', label: 'Open crates' });
   if (options.mintScan) steps.push({ key: 'mintScan', label: 'Scan mintable ranks' });
   return steps;
+}
+
+function mapStrategyProgressDetail(detail, profile) {
+  const text = String(detail || '');
+  if (/fetching status|fetching crate|building strategy/i.test(text)) return { key: 'sync', label: 'Build strategy plan' };
+  if (/sync/i.test(text)) return { key: 'sync', label: 'Sync account state' };
+  if (/exploration/i.test(text)) return { key: 'explore', label: 'Run exploration checks' };
+  if (/social tasks/i.test(text)) return { key: 'tasks', label: 'Complete social tasks' };
+  if (/badges/i.test(text)) return { key: 'badges', label: 'Claim badges' };
+  if (/faucet/i.test(text)) return { key: 'faucet', label: 'Claim faucet' };
+  if (/transactions/i.test(text)) return { key: 'txGrind', label: text };
+  if (/staking/i.test(text)) return { key: 'stake', label: text };
+  if (/burning/i.test(text)) return { key: 'burn', label: text };
+  if (/crates/i.test(text)) return { key: 'crates', label: 'Open crates' };
+  if (/mintable ranks/i.test(text)) return { key: 'mintScan', label: 'Scan mintable ranks' };
+  return { key: 'strategy', label: `Strategy warmup (${profile})` };
 }
 
 class DACBot {
@@ -1012,7 +1028,7 @@ class DACBot {
     const { crates = true, faucet = true, tasks = true, badges = true, txGrind = false, txCount = 3, txAmount = '0.0001', burnAmount = null, stakeAmount = null, strategy = false, profile = DEFAULT_PROFILE, mintScan = true, receive = false, receiveCount = 1, receiveAmount = txAmount, mesh = false, meshCount = 1, meshAmount = txAmount, progress = null } = options;
 
     // Backward-compat progress callback
-    const plannedSteps = collectRunStepPlan({ crates, faucet, tasks, badges, txGrind, txCount, burnAmount, stakeAmount, mintScan, receive, receiveCount, mesh, meshCount });
+    const plannedSteps = collectRunStepPlan({ crates, faucet, tasks, badges, txGrind, txCount, burnAmount, stakeAmount, strategy, mintScan, receive, receiveCount, mesh, meshCount });
     let currentStep = 0;
     const publishProgress = (key, label, detail = null) => {
       if (progress) progress({ step: currentStep, total: plannedSteps.length || 1, label, detail, key });
@@ -1057,7 +1073,10 @@ class DACBot {
         strategyPlan = await this._track(`Strategy warmup (${profile})`, async () => {
           this.log('\n  Strategy warmup...');
           const previousReporter = this.progressReporter;
-          this.progressReporter = (detail) => publishProgress('strategy', `Strategy warmup (${profile})`, detail);
+          this.progressReporter = (detail) => {
+            const mapped = mapStrategyProgressDetail(detail, profile);
+            advanceStep(mapped.key, mapped.label, detail);
+          };
           try {
             const plan = await this.runStrategy({
               profileName: profile,
