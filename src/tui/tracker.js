@@ -340,12 +340,15 @@ class AccountProgressMap {
 
   // ─── Lightweight dashboard state ──────────────────────
 
-  setState(accountName, { label, index, total } = {}) {
+  setState(accountName, { label, index, total, detail } = {}) {
     const s = this.states.get(accountName) || {};
     if (!s.startTime) s.startTime = Date.now();
+    const labelChanged = label !== undefined && label !== s.label;
     if (label !== undefined) s.label = label;
     if (index !== undefined) s.index = index;
     if (total !== undefined) s.total = total;
+    if (detail !== undefined) s.detail = detail;
+    else if (labelChanged) s.detail = null;
     this.states.set(accountName, s);
   }
 
@@ -486,18 +489,51 @@ class AccountProgressMap {
       }
 
       lines.push(`  ${sym} ${nameCol}  ${stepText}  ${barMini}  ${pctStr}%  ${proxyBadge}`);
-      const lastInteresting = [...tracker.steps].reverse().find((step) => step.error || step.txHash || step.detail);
-      if (lastInteresting) {
-        const detailParts = [];
-        if (lastInteresting.txHash) detailParts.push(`tx=${lastInteresting.txHash}`);
-        if (lastInteresting.explorerUrl) detailParts.push(`url=${lastInteresting.explorerUrl}`);
-        if (lastInteresting.error) detailParts.push(`error=${lastInteresting.error}`);
-        if (lastInteresting.detail) detailParts.push(`detail=${lastInteresting.detail}`);
-        lines.push(`      ${color(S.pipe, C.muted)} ${color(detailParts.join(' | '), lastInteresting.error ? C.errorText : C.muted)}`);
+
+      const activeStep = this._findStepForState(tracker, state);
+      const activeParts = [];
+      if (activeStep?.txHash) activeParts.push(`tx=${activeStep.txHash}`);
+      if (activeStep?.explorerUrl) activeParts.push(`url=${activeStep.explorerUrl}`);
+      if (activeStep?.error) activeParts.push(`error=${activeStep.error}`);
+      if (activeStep?.detail) activeParts.push(`detail=${activeStep.detail}`);
+      if (state.detail && !activeParts.some((p) => p.includes(state.detail))) activeParts.push(`detail=${state.detail}`);
+
+      const lastTxStep = [...tracker.steps].reverse().find((step) => step.txHash || step.explorerUrl);
+      const lastErrorStep = [...tracker.steps].reverse().find((step) => step.error);
+      const infoLines = [];
+      if (activeParts.length) infoLines.push({ label: 'now', text: activeParts.join(' | '), error: !!activeStep?.error });
+      if (lastTxStep && lastTxStep !== activeStep) {
+        const txParts = [];
+        if (lastTxStep.txHash) txParts.push(`tx=${lastTxStep.txHash}`);
+        if (lastTxStep.explorerUrl) txParts.push(`url=${lastTxStep.explorerUrl}`);
+        if (lastTxStep.detail) txParts.push(`detail=${lastTxStep.detail}`);
+        infoLines.push({ label: 'last tx', text: txParts.join(' | '), error: false });
+      }
+      if (lastErrorStep && lastErrorStep !== activeStep && lastErrorStep !== lastTxStep) {
+        infoLines.push({ label: 'last error', text: lastErrorStep.error, error: true });
+      }
+
+      for (const info of infoLines.slice(0, 2)) {
+        const tone = info.error ? C.errorText : C.muted;
+        lines.push(`      ${color(S.pipe, C.muted)} ${color(info.label, C.label)} ${color(info.text, tone)}`);
       }
     }
 
     return box(`${S.diamond} ${this.title}`, lines, w);
+  }
+
+  _findStepForState(tracker, state) {
+    if (!tracker?.steps?.length) return null;
+    if (state?.error) {
+      return [...tracker.steps].reverse().find((step) => step.status === STATUS.ERROR) || null;
+    }
+    const byLabel = state?.label
+      ? [...tracker.steps].reverse().find((step) => step.label === state.label)
+      : null;
+    if (byLabel) return byLabel;
+    return [...tracker.steps].reverse().find((step) => step.status === STATUS.RUNNING)
+      || [...tracker.steps].reverse().find((step) => step.txHash || step.error || step.detail)
+      || null;
   }
 
   _miniBar(pct, width) {

@@ -271,7 +271,7 @@ async function runMultiAccountAutomation({ names, contextFactory, options, args,
     },
     onProgress: ({ account, step, message, total, stepIndex, key, detail }) => {
       // Update lightweight dashboard state with human-readable progress
-      progressMap.setState(account, { label: step, index: stepIndex, total });
+      progressMap.setState(account, { label: step, index: stepIndex, total, detail });
       progressMap.setCurrent(account);
       if (useVisual) {
         throttledRender();
