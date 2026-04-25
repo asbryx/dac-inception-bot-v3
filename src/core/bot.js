@@ -291,7 +291,7 @@ function mapStrategyProgressDetail(detail, profile) {
   if (/burning/i.test(text)) return { key: 'burn', label: text };
   if (/crates/i.test(text)) return { key: 'crates', label: 'Open crates' };
   if (/mintable ranks/i.test(text)) return { key: 'mintScan', label: 'Scan mintable ranks' };
-  return { key: 'strategy', label: `Strategy warmup (${profile})` };
+  return { key: null, label: `Strategy warmup (${profile})` };
 }
 
 class DACBot {
@@ -1030,14 +1030,24 @@ class DACBot {
     // Backward-compat progress callback
     const plannedSteps = collectRunStepPlan({ crates, faucet, tasks, badges, txGrind, txCount, burnAmount, stakeAmount, strategy, mintScan, receive, receiveCount, mesh, meshCount });
     let currentStep = 0;
+    let currentLabel = plannedSteps[0]?.label || 'Starting';
+    let currentKey = plannedSteps[0]?.key || 'start';
     const publishProgress = (key, label, detail = null) => {
       if (progress) progress({ step: currentStep, total: plannedSteps.length || 1, label, detail, key });
     };
     const advanceStep = (key, label, detail = null) => {
       const stepIndex = plannedSteps.findIndex((item) => item.key === key);
-      currentStep = stepIndex >= 0 ? stepIndex + 1 : Math.min(currentStep + 1, plannedSteps.length || 1);
-      publishProgress(key, label, detail);
+      const nextStep = stepIndex >= 0 ? stepIndex + 1 : Math.min(currentStep + 1, plannedSteps.length || 1);
+      if (nextStep >= currentStep) {
+        currentStep = nextStep;
+        currentKey = key;
+        currentLabel = label;
+        publishProgress(key, label, detail);
+      } else {
+        updateCurrentStepDetail(detail);
+      }
     };
+    const updateCurrentStepDetail = (detail) => publishProgress(currentKey, currentLabel, detail);
 
     await this.ensureSession(false);
     let strategyPlan = null;
@@ -1075,7 +1085,8 @@ class DACBot {
           const previousReporter = this.progressReporter;
           this.progressReporter = (detail) => {
             const mapped = mapStrategyProgressDetail(detail, profile);
-            advanceStep(mapped.key, mapped.label, detail);
+            if (mapped.key) advanceStep(mapped.key, mapped.label, detail);
+            else updateCurrentStepDetail(detail);
           };
           try {
             const plan = await this.runStrategy({
