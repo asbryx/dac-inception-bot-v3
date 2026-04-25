@@ -119,6 +119,11 @@ async function buildAutoAllOptionsInteractive(promptFn) {
       featureState[feat.value] = enabledSet.has(feat.value);
     }
   }
+  if (featureState.strategy_run) {
+    // Smart strategy decides burn/stake amounts itself; keep manual toggles out of this run.
+    featureState.tx_burn = false;
+    featureState.tx_stake = false;
+  }
   saveFeatureState(featureState);
 
   // Build automation options from toggles
