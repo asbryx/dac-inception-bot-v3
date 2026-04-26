@@ -33,6 +33,7 @@ function statLine(summary) {
       ? pill(`${S.fail} ${summary.failedCount} failed`, C.error)
       : pill(`${S.ok} 0 failed`, C.muted),
     pill(`${S.diamond} ${summary.totalQe} QE`, C.primary),
+    pill(`${S.tri} ${displayValue(summary.totalDacc)} DACC`, C.success),
     pill(`${S.star} ${summary.totalBadges} badges`, C.warn),
   ].join('   ');
 }
@@ -41,11 +42,12 @@ function statLine(summary) {
 
 function renderRowsTable(rows) {
   return table(
-    ['Account', 'Rank', 'QE', 'Badges', 'Tasks', 'Streak', 'Refs', 'Status'],
+    ['Account', 'Rank', 'QE', 'DACC', 'Badges', 'Tasks', 'Streak', 'Refs', 'Status'],
     rows.map((r) => [
       color(r.accountName || r.account, C.value),
       displayValue(r.rank),
       displayValue(r.qe),
+      displayValue(r.dacc),
       `${displayValue(r.badges)}/${displayValue(r.badgeTotal)}`,
       `${displayValue(r.taskSummary?.done)}/${displayValue(r.taskSummary?.total)}`,
       displayValue(r.streak),
@@ -98,7 +100,7 @@ function renderSummary(summary) {
     lines.push('', color(`  Page ${i + 1}/${chunks.length}`, C.muted), '', renderRowsTable(chunk));
   });
   lines.push('');
-  return box(`${S.star} Summary`, lines, 132);
+  return box(`${S.star} Summary`, lines, 144);
 }
 
 // ── Top Accounts ────────────────────────────────────────
@@ -110,10 +112,11 @@ function renderTopAccountsPanel(summary) {
     const name = color(r.accountName || r.account, C.value);
     const qe = `${color('QE', C.label)} ${color(String(displayValue(r.qe)), C.primary)}`;
     const rank = `${color('Rank', C.label)} ${color(String(displayValue(r.rank)), C.warn)}`;
+    const dacc = `${color('DACC', C.label)} ${color(String(displayValue(r.dacc)), C.success)}`;
     const badges = `${color('Badges', C.label)} ${color(`${displayValue(r.badges)}/${displayValue(r.badgeTotal)}`, C.accent)}`;
-    return `  ${num} ${name}  ${qe}  ${rank}  ${badges}`;
+    return `  ${num} ${name}  ${qe}  ${rank}  ${dacc}  ${badges}`;
   }), ''];
-  return box(`${S.star} Top Accounts`, lines, 100);
+  return box(`${S.star} Top Accounts`, lines, 116);
 }
 
 // ── Aggregate Overview ──────────────────────────────────

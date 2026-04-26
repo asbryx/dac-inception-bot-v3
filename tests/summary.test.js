@@ -11,14 +11,14 @@ test('summary rendering shows unknown badge totals honestly', () => {
     failedCount: 0,
     totalQe: 5,
     totalBadges: 2,
-    rows: [{ accountName: 'main01', rank: 1, qe: 5, badges: 2, badgeTotal: null, taskSummary: { done: 1, total: 6 }, streak: null, referralCount: null }],
+    rows: [{ accountName: 'main01', rank: 1, qe: 5, dacc: 10, badges: 2, badgeTotal: null, taskSummary: { done: 1, total: 6 }, streak: null, referralCount: null }],
   });
   assert.match(stripAnsi(text), /2\/\u2014/);
 });
 
 test('summary rendering shows unknown values honestly and includes failures', () => {
   const summary = summarizeAccounts([
-    { account: 'main01', result: { accountName: 'main01', qe: null, rank: null, badges: null, badgeTotal: null, taskSummary: { done: null, total: null }, streak: null, referralCount: null, stale: true } },
+    { account: 'main01', result: { accountName: 'main01', qe: null, dacc: null, rank: null, badges: null, badgeTotal: null, taskSummary: { done: null, total: null }, streak: null, referralCount: null, stale: true } },
     { account: 'main02', ok: false, error: 'main02 | status-all | GET /profile/ | Timeout: GET /profile/ after 25000ms' },
   ]);
   const text = `${renderSummary(summary)}\n${renderFailuresPanel(summary.failedRows)}`;
@@ -46,6 +46,7 @@ test('summary bundle chunks large account lists cleanly', () => {
     result: {
       accountName: `main${String(index + 1).padStart(2, '0')}`,
       qe: index,
+      dacc: index + 10,
       rank: 1,
       badges: 1,
       badgeTotal: 5,
@@ -60,4 +61,17 @@ test('summary bundle chunks large account lists cleanly', () => {
   assert.match(text, /Top Accounts/);
   assert.match(text, /Page 1\/3/);
   assert.match(text, /Page 3\/3/);
+});
+
+test('summary rendering includes per-account and total DACC balances', () => {
+  const summary = summarizeAccounts([
+    { account: 'main01', result: { accountName: 'main01', qe: 5, dacc: '12.5', rank: 1, badges: 2, badgeTotal: 5, taskSummary: { done: 1, total: 6 }, streak: 1, referralCount: 0 } },
+    { account: 'main02', result: { accountName: 'main02', qe: 6, dacc: '7.5', rank: 2, badges: 1, badgeTotal: 5, taskSummary: { done: 2, total: 6 }, streak: 2, referralCount: 0 } },
+  ]);
+  const plain = stripAnsi(renderSummary(summary));
+  assert.equal(summary.totalDacc, 20);
+  assert.match(plain, /20 DACC/);
+  assert.match(plain, /DACC/);
+  assert.match(plain, /12\.5/);
+  assert.match(plain, /7\.5/);
 });

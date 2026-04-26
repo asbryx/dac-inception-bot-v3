@@ -3,6 +3,7 @@ function sortRows(rows, sortBy = 'qe') {
     qe: (row) => row.qe ?? -1,
     rank: (row) => row.rank ?? -1,
     badges: (row) => row.badges ?? -1,
+    dacc: (row) => Number(row.dacc ?? -1),
     tasks: (row) => row.taskSummary?.done ?? -1,
   };
   const getter = getters[sortBy] || getters.qe;
@@ -23,6 +24,7 @@ function normalizeRow(row) {
     account: row.account,
     rank: null,
     qe: null,
+    dacc: null,
     badges: null,
     badgeTotal: null,
     streak: null,
@@ -42,6 +44,7 @@ function summarizeAccounts(rows) {
     okCount: okRows.length,
     failedCount: failedRows.length,
     totalQe: okRows.reduce((sum, row) => sum + Number(row.qe || 0), 0),
+    totalDacc: okRows.reduce((sum, row) => sum + Number(row.dacc || 0), 0),
     totalBadges: okRows.reduce((sum, row) => sum + Number(row.badges || 0), 0),
     topAccounts: sortRows(okRows, 'qe').slice(0, 5),
     rows: normalizedRows,
