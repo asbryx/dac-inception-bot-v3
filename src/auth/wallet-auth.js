@@ -55,7 +55,7 @@ async function walletLogin(bot, { force = false, baseUrl }) {
     csrf = parseCookieString(cookieString).csrftoken || null;
     if (!csrf) {
       // DAC currently accepts this bootstrap token when no CSRF cookie is issued yet.
-      csrf = '00000000000000000000000000000000';
+      csrf = '0000000000000000000000000000000000000000000000000000000000000000';
       cookieString = mergeCookieStrings(cookieString, `csrftoken=${csrf}`);
       cookieHeader = buildCookieHeader(cookieString);
       if (typeof bot.reportActivity === 'function') bot.reportActivity('Wallet auth: using fallback CSRF bootstrap');

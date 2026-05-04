@@ -105,13 +105,21 @@ async function fetchApiPayload(bot, apiPath, { method = 'GET', body } = {}) {
   }
 }
 
-async function api(bot, method, apiPath, body, { retryAuth = true } = {}) {
+async function api(bot, method, apiPath, body, { retryAuth = true, retryCsrf = true } = {}) {
   await bot.ensureSession(false);
   if (!isReadOnlyApiPath(apiPath) && !bot.fastMode) await bot.humanPause('api');
 
   try {
     const payload = await fetchApiPayload(bot, apiPath, { method, body });
     const classification = bot.classifyResponse(payload._status || 0, payload);
+
+    // CSRF failure: refresh session CSRF token and retry once
+    if (retryCsrf && classification.csrfFailure && bot.walletAddress) {
+      bot.log('  CSRF token rejected, refreshing session...');
+      if (!bot.fastMode) await bot.humanPause('session');
+      await bot.walletLogin(true);
+      return api(bot, method, apiPath, body, { retryAuth: false, retryCsrf: false });
+    }
 
     if (
       retryAuth

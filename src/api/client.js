@@ -18,9 +18,10 @@ async function fetchJsonResponse(response) {
 function isAuthFailure(payload) {
   const status = payload?._status || 0;
   const text = `${payload?.error || ''} ${payload?.body || ''}`.toLowerCase();
+  // CSRF failures are NOT auth failures — they indicate missing/wrong CSRF token, not expired session
+  if (text.includes('csrf')) return false;
   return status === 401
     || status === 403
-    || text.includes('csrf verification failed')
     || text.includes('authentication credentials were not provided');
 }
 

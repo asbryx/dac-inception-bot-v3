@@ -436,7 +436,8 @@ class DACBot {
 
   classifyResponse(status, payload, bodyText = '') {
     const text = `${payload?.error || ''} ${payload?.body || ''} ${bodyText || ''}`.trim();
-    return { challenge: isChallengeResponse(text), rateLimited: status === 429 || /too many requests|rate limit/i.test(text), blocked: status === 403 || status === 503 || isChallengeResponse(text) };
+    const isCsrfFailure = text.includes("csrf");
+    return { challenge: isChallengeResponse(text), rateLimited: status === 429 || /too many requests|rate limit/i.test(text), blocked: (!isCsrfFailure && status === 403) || status === 503 || isChallengeResponse(text), csrfFailure: isCsrfFailure };
   }
 
   persistSession(cookieString, csrf) {
